@@ -1,0 +1,72 @@
+I want you to create a complete Next.js 14 (App Router) frontend-only project that converts a hand-drawn sketch on a canvas into G-Code.  
+There must be NO backend, NO API routes, NO server components — everything should run 100% client-side in the browser.  
+
+Project requirements:
+
+1. Stack
+   - Next.js 14 with App Router
+   - React
+   - TailwindCSS
+   - Konva.js or Fabric.js for drawing canvas (choose whichever is simpler)
+   - Use Potrace-WASM or any pure-browser library to vectorize PNG → SVG
+   - Use svg-path-parser to extract coordinate points
+   - Generate G-Code fully in client-side JavaScript
+
+2. Features
+   - A drawing canvas page where the user can:
+       • draw freehand lines  
+       • change brush size  
+       • clear canvas  
+   - A button “Generate G-Code”
+   - When clicked:
+       • export the canvas drawing as PNG  
+       • vectorize the PNG into SVG paths  
+       • parse all path coordinates  
+       • convert the coordinates into G-Code movements  
+       • allow user to download a .gcode file
+
+3. G-Code format
+   The generated G-Code should follow this simple structure:
+       G21
+       G90
+       G1 F1500
+       G0 X{x0} Y{y0}
+       M3
+       G1 X{x} Y{y}
+       ...
+       M5
+       G0 X0 Y0
+
+4. UI requirements
+   - Clean, minimal interface
+   - A centered canvas
+   - Buttons for:
+       • Brush size  
+       • Clear canvas  
+       • Generate G-Code  
+   - Responsive layout
+
+5. Implementation details
+   - Use only client components (`"use client"`)
+   - Put all logic in a single page at `/`
+   - Utility functions for:
+       • trace image → SVG  
+       • parse SVG paths  
+       • generate G-Code  
+   - Provide all TypeScript types
+   - Export final G-Code via `Blob` + download link
+
+6. Deliverables
+   - Provide ALL project files:
+        package.json  
+        tailwind.config.js  
+        next.config.js  
+        app/layout.tsx  
+        app/page.tsx  
+        components as needed  
+        utils for vectorization and G-Code  
+   - Code must be fully working, complete, and ready to run using:
+        npm install
+        npm run dev
+
+Start building the full project now.

@@ -1,0 +1,12 @@
+<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="stone5" patternUnits="userSpaceOnUse" width="55" height="55">
+      <rect width="55" height="55" fill="#5A4A3D"/>
+      <path d="M 10 10 Q 20 5 30 10 T 50 10" stroke="#6B5B4F" stroke-width="2" fill="none" opacity="0.6"/>
+      <path d="M 15 25 Q 25 20 35 25 T 55 25" stroke="#7A6B5E" stroke-width="2" fill="none" opacity="0.5"/>
+      <path d="M 5 40 Q 15 35 25 40 T 45 40" stroke="#8B7355" stroke-width="2" fill="none" opacity="0.4"/>
+    </pattern>
+  </defs>
+  <rect width="400" height="300" fill="url(#stone5)"/>
+</svg>
+
