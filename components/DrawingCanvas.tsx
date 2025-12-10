@@ -1,45 +1,50 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, Dispatch, SetStateAction } from 'react';
 
-type Tool = 'pen' | 'line' | 'eraser' | 'bucket';
+interface StoneImage {
+  id: string;
+  imageData: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  originalImageUrl: string;
+  cropSelection: { startX: number; startY: number; endX: number; endY: number };
+}
 
 interface DrawingCanvasProps {
-  lines: any[];
-  setLines: (lines: any[]) => void;
-  brushSize: number;
-  isDrawing: boolean;
-  setIsDrawing: (isDrawing: boolean) => void;
-  tool: Tool;
-  fillColor: string;
   backgroundImage: string | null;
   stageRef: React.RefObject<any>;
-  canvasSize: number; // Canvas size in meters
+  canvasSizeX: number; // Canvas width in meters
+  canvasSizeY: number; // Canvas height in meters
+  stoneImages: StoneImage[];
+  setStoneImages: Dispatch<SetStateAction<StoneImage[]>>;
+  selectedStoneId: string | null;
+  setSelectedStoneId: (id: string | null) => void;
+  onDeleteStone: (id: string) => void;
 }
 
 export default function DrawingCanvas({
-  lines,
-  setLines,
-  brushSize,
-  isDrawing,
-  setIsDrawing,
-  tool,
-  fillColor,
   backgroundImage,
   stageRef,
-  canvasSize,
+  canvasSizeX,
+  canvasSizeY,
+  stoneImages,
+  setStoneImages,
+  selectedStoneId,
+  setSelectedStoneId,
+  onDeleteStone,
 }: DrawingCanvasProps) {
   const [isClient, setIsClient] = useState(false);
   const [KonvaComponents, setKonvaComponents] = useState<any>(null);
-  const [tempLine, setTempLine] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
-  const [lineAngle, setLineAngle] = useState<number | null>(null);
-  const [lineLength, setLineLength] = useState<number | null>(null);
-  const [distanceToLeft, setDistanceToLeft] = useState<number | null>(null);
-  const [distanceToTop, setDistanceToTop] = useState<number | null>(null);
-  const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
-  const [fillImages, setFillImages] = useState<Map<number, HTMLImageElement>>(new Map());
-  const fillImagesRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+  const [stoneImageElements, setStoneImageElements] = useState<Map<string, HTMLImageElement>>(new Map());
+  const stoneGroupRefs = useRef<Map<string, any>>(new Map());
+  const transformerRef = useRef<any>(null);
+  const previousImageDataRef = useRef<Map<string, string>>(new Map());
+  const [liveStonePositions, setLiveStonePositions] = useState<Map<string, { x: number; y: number; rotation: number }>>(new Map());
 
   useEffect(() => {
     setIsClient(true);
@@ -49,23 +54,6 @@ export default function DrawingCanvas({
     });
   }, []);
 
-  // Load fill images
-  useEffect(() => {
-    lines.forEach((line, i) => {
-      if (line.type === 'fill' && line.imageData && !fillImagesRef.current.has(i)) {
-        const img = new window.Image();
-        img.onload = () => {
-          fillImagesRef.current.set(i, img);
-          setFillImages((prev) => {
-            const updated = new Map(prev);
-            updated.set(i, img);
-            return updated;
-          });
-        };
-        img.src = line.imageData;
-      }
-    });
-  }, [lines]);
 
   // Load background image
   useEffect(() => {
@@ -80,294 +68,130 @@ export default function DrawingCanvas({
     }
   }, [backgroundImage]);
 
-  const calculateAngle = (startX: number, startY: number, endX: number, endY: number): number => {
-    const dx = endX - startX;
-    const dy = endY - startY;
-    const angleRad = Math.atan2(dy, dx);
-    const angleDeg = (angleRad * 180) / Math.PI;
-    // Normalize to 0-360 range
-    return angleDeg < 0 ? angleDeg + 360 : angleDeg;
-  };
-
-  // Flood fill algorithm
-  const floodFill = (stage: any, startX: number, startY: number, fillColor: string) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 800;
-    canvas.height = 600;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Draw current canvas state to temporary canvas
-    const stageCanvas = stage.toCanvas();
-    ctx.drawImage(stageCanvas, 0, 0);
-
-    // Get image data
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    // Convert fill color to RGB
-    const hexToRgb = (hex: string) => {
-      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-      return result
-        ? {
-            r: parseInt(result[1], 16),
-            g: parseInt(result[2], 16),
-            b: parseInt(result[3], 16),
-          }
-        : { r: 0, g: 0, b: 0 };
-    };
-
-    const fillRgb = hexToRgb(fillColor);
-    const targetR = data[((Math.floor(startY) * width + Math.floor(startX)) * 4)];
-    const targetG = data[((Math.floor(startY) * width + Math.floor(startX)) * 4) + 1];
-    const targetB = data[((Math.floor(startY) * width + Math.floor(startX)) * 4) + 2];
-    const targetA = data[((Math.floor(startY) * width + Math.floor(startX)) * 4) + 3];
-
-    // Check if already filled
-    if (
-      targetR === fillRgb.r &&
-      targetG === fillRgb.g &&
-      targetB === fillRgb.b
-    ) {
-      return;
-    }
-
-    // Flood fill using stack-based approach
-    const stack: [number, number][] = [[Math.floor(startX), Math.floor(startY)]];
-    const visited = new Set<string>();
-
-    const setPixel = (x: number, y: number) => {
-      const idx = (y * width + x) * 4;
-      data[idx] = fillRgb.r;
-      data[idx + 1] = fillRgb.g;
-      data[idx + 2] = fillRgb.b;
-      data[idx + 3] = 255;
-    };
-
-    const getPixel = (x: number, y: number) => {
-      if (x < 0 || x >= width || y < 0 || y >= height) return null;
-      const idx = (y * width + x) * 4;
-      return {
-        r: data[idx],
-        g: data[idx + 1],
-        b: data[idx + 2],
-        a: data[idx + 3],
-      };
-    };
-
-    const matchesTarget = (pixel: { r: number; g: number; b: number; a: number } | null) => {
-      if (!pixel) return false;
-      // Match if similar color (within tolerance) or if it's white/transparent
-      const tolerance = 10;
-      return (
-        (Math.abs(pixel.r - targetR) < tolerance &&
-          Math.abs(pixel.g - targetG) < tolerance &&
-          Math.abs(pixel.b - targetB) < tolerance) ||
-        (pixel.r === 255 && pixel.g === 255 && pixel.b === 255) // White background
-      );
-    };
-
-    while (stack.length > 0) {
-      const [x, y] = stack.pop()!;
-      const key = `${x},${y}`;
-
-      if (visited.has(key)) continue;
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
-
-      const pixel = getPixel(x, y);
-      if (!pixel || !matchesTarget(pixel)) continue;
-
-      visited.add(key);
-      setPixel(x, y);
-
-      // Add neighbors
-      stack.push([x + 1, y]);
-      stack.push([x - 1, y]);
-      stack.push([x, y + 1]);
-      stack.push([x, y - 1]);
-    }
-
-    // Create a mask canvas with only the filled area
-    const maskCanvas = document.createElement('canvas');
-    maskCanvas.width = width;
-    maskCanvas.height = height;
-    const maskCtx = maskCanvas.getContext('2d');
-    if (!maskCtx) return;
-
-    // Create image data for mask (only filled pixels)
-    const maskImageData = maskCtx.createImageData(width, height);
-    const maskData = maskImageData.data;
-
-    // Mark filled pixels in mask
-    visited.forEach((key) => {
-      const [x, y] = key.split(',').map(Number);
-      const idx = (y * width + x) * 4;
-      maskData[idx] = fillRgb.r;
-      maskData[idx + 1] = fillRgb.g;
-      maskData[idx + 2] = fillRgb.b;
-      maskData[idx + 3] = 255;
-    });
-
-    maskCtx.putImageData(maskImageData, 0, 0);
-
-    const fillShape = {
-      type: 'fill',
-      imageData: maskCanvas.toDataURL(),
-      color: fillColor,
-      x: 0,
-      y: 0,
-      width: width,
-      height: height,
-    };
-
-    return fillShape;
-  };
-
-  const handleMouseDown = (e: any) => {
-    const pos = e.target.getStage().getPointerPosition();
-    const stage = e.target.getStage();
-    
-    if (tool === 'pen') {
-      setIsDrawing(true);
-      setLines([...lines, { points: [pos.x, pos.y], brushSize, type: 'pen' }]);
-    } else if (tool === 'line') {
-      setIsDrawing(true);
-      setTempLine({ startX: pos.x, startY: pos.y, endX: pos.x, endY: pos.y });
-      setLineAngle(0);
-      setLineLength(0);
-      // Convert initial position to meters
-      const canvasWidth = 800;
-      const canvasHeight = 600;
-      const pixelsToMetersX = canvasSize / canvasWidth;
-      const pixelsToMetersY = (canvasSize * canvasHeight / canvasWidth) / canvasHeight;
-      setDistanceToLeft(pos.x * pixelsToMetersX);
-      setDistanceToTop(pos.y * pixelsToMetersY);
-    } else if (tool === 'eraser') {
-      setIsDrawing(true);
-      setLines([...lines, { points: [pos.x, pos.y], brushSize, type: 'eraser' }]);
-    } else if (tool === 'bucket') {
-      const fillShape = floodFill(stage, pos.x, pos.y, fillColor);
-      if (fillShape) {
-        setLines([...lines, fillShape]);
+  // Load stone images
+  useEffect(() => {
+    stoneImages.forEach((stone) => {
+      const previousImageData = previousImageDataRef.current.get(stone.id);
+      // Load new image if it doesn't exist or if imageData has changed
+      if (!stoneImageElements.has(stone.id) || previousImageData !== stone.imageData) {
+        const img = new window.Image();
+        img.onload = () => {
+          setStoneImageElements((prev) => {
+            const updated = new Map(prev);
+            updated.set(stone.id, img);
+            return updated;
+          });
+        };
+        img.src = stone.imageData;
+        // Update the ref to track this imageData
+        previousImageDataRef.current.set(stone.id, stone.imageData);
       }
-    }
-  };
-
-  const handleMouseMove = (e: any) => {
-    if (!isDrawing) return;
+    });
     
-    const stage = e.target.getStage();
-    const point = stage.getPointerPosition();
-    
-    if (tool === 'pen') {
-      const lastLine = lines[lines.length - 1];
-      lastLine.points = lastLine.points.concat([point.x, point.y]);
-      
-      const newLines = lines.slice();
-      newLines.splice(lines.length - 1, 1, lastLine);
-      setLines(newLines);
-    } else if (tool === 'line' && tempLine) {
-      setTempLine({ ...tempLine, endX: point.x, endY: point.y });
-      const angle = calculateAngle(tempLine.startX, tempLine.startY, point.x, point.y);
-      setLineAngle(angle);
-      
-      // Calculate line length in pixels, then convert to meters
-      const canvasWidth = 800; // Canvas width in pixels
-      const canvasHeight = 600; // Canvas height in pixels
-      const pixelsToMetersX = canvasSize / canvasWidth; // meters per pixel (width)
-      const pixelsToMetersY = (canvasSize * canvasHeight / canvasWidth) / canvasHeight; // meters per pixel (height)
-      
-      const dx = point.x - tempLine.startX;
-      const dy = point.y - tempLine.startY;
-      const lengthPixels = Math.sqrt(dx * dx + dy * dy);
-      // Convert to meters using average scale (or use X scale for simplicity)
-      const lengthMeters = lengthPixels * pixelsToMetersX;
-      setLineLength(lengthMeters);
-      
-      // Distance to left (x coordinate) and top (y coordinate) in meters
-      setDistanceToLeft(point.x * pixelsToMetersX);
-      setDistanceToTop(point.y * pixelsToMetersY);
-    } else if (tool === 'eraser') {
-      const lastLine = lines[lines.length - 1];
-      lastLine.points = lastLine.points.concat([point.x, point.y]);
-      
-      const newLines = lines.slice();
-      newLines.splice(lines.length - 1, 1, lastLine);
-      setLines(newLines);
-    }
-  };
+    // Remove images that are no longer in stoneImages
+    const currentIds = new Set(stoneImages.map(s => s.id));
+    stoneImageElements.forEach((_, id) => {
+      if (!currentIds.has(id)) {
+        setStoneImageElements((prev) => {
+          const updated = new Map(prev);
+          updated.delete(id);
+          return updated;
+        });
+        previousImageDataRef.current.delete(id);
+      }
+    });
+  }, [stoneImages]);
 
-  const handleMouseUp = () => {
-    if (tool === 'line' && tempLine) {
-      // Finalize the line
-      setLines([
-        ...lines,
-        {
-          points: [tempLine.startX, tempLine.startY, tempLine.endX, tempLine.endY],
-          brushSize,
-          type: 'line',
-        },
-      ]);
-      setTempLine(null);
-      setLineAngle(null);
-      setLineLength(null);
-      setDistanceToLeft(null);
-      setDistanceToTop(null);
+  // Handle keyboard delete
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedStoneId) {
+        e.preventDefault();
+        onDeleteStone(selectedStoneId);
+        setSelectedStoneId(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedStoneId, onDeleteStone, setSelectedStoneId]);
+
+  // Update transformer when selection changes
+  useEffect(() => {
+    if (transformerRef.current && selectedStoneId) {
+      const node = stoneGroupRefs.current.get(selectedStoneId);
+      if (node) {
+        // Force update the transformer
+        transformerRef.current.nodes([node]);
+        transformerRef.current.getLayer()?.batchDraw();
+      }
+    } else if (transformerRef.current && !selectedStoneId) {
+      // Clear transformer when nothing is selected
+      transformerRef.current.nodes([]);
     }
-    setIsDrawing(false);
-  };
+  }, [selectedStoneId, stoneImages]);
+
+
+  // Calculate canvas dimensions based on size in meters, maintaining aspect ratio
+  // Max display size: 1200px for width or height
+  const maxDisplaySize = 1200;
+  const aspectRatio = canvasSizeX / canvasSizeY;
+  let canvasWidth = 800;
+  let canvasHeight = 600;
+  
+  if (aspectRatio >= 1) {
+    // Width is larger or equal
+    canvasWidth = Math.min(maxDisplaySize, 800);
+    canvasHeight = canvasWidth / aspectRatio;
+  } else {
+    // Height is larger
+    canvasHeight = Math.min(maxDisplaySize, 600);
+    canvasWidth = canvasHeight * aspectRatio;
+  }
+  
+  // Ensure minimum size
+  if (canvasWidth < 400) {
+    canvasWidth = 400;
+    canvasHeight = canvasWidth / aspectRatio;
+  }
+  if (canvasHeight < 300) {
+    canvasHeight = 300;
+    canvasWidth = canvasHeight * aspectRatio;
+  }
+
 
   if (!isClient || !KonvaComponents) {
     return (
-      <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white w-[800px] h-[600px] flex items-center justify-center">
+      <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white flex items-center justify-center" style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
         <p className="text-gray-500">Loading canvas...</p>
       </div>
     );
   }
 
-  const { Stage, Layer, Line, Rect, Text, Image } = KonvaComponents;
+  const { Stage, Layer, Rect, Text, Image, Group, Transformer } = KonvaComponents;
 
   return (
-    <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white relative">
+    <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white relative" style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
       <Stage
         ref={stageRef}
-        width={800}
-        height={600}
-        onMouseDown={handleMouseDown}
-        onMousemove={(e: any) => {
-          handleMouseMove(e);
-          // Also track mouse position when not drawing (for line/pen tools)
-          if ((tool === 'line' || tool === 'pen') && !isDrawing) {
-            const stage = e.target.getStage();
-            const point = stage.getPointerPosition();
-            if (point) {
-              setMousePosition(point);
-              // Calculate distance in meters
-              const canvasWidth = 800;
-              const canvasHeight = 600;
-              const pixelsToMetersX = canvasSize / canvasWidth;
-              const pixelsToMetersY = (canvasSize * canvasHeight / canvasWidth) / canvasHeight;
-              setDistanceToLeft(point.x * pixelsToMetersX);
-              setDistanceToTop(point.y * pixelsToMetersY);
-            }
-          } else {
-            setMousePosition(null);
+        width={canvasWidth}
+        height={canvasHeight}
+        onClick={(e: any) => {
+          // Deselect stone if clicking on empty space
+          const clickedOnEmpty = e.target === e.target.getStage();
+          if (clickedOnEmpty) {
+            setSelectedStoneId(null);
           }
-        }}
-        onMouseup={handleMouseUp}
-        onMouseLeave={(e: any) => {
-          handleMouseUp();
-          setMousePosition(null);
         }}
       >
         <Layer>
           <Rect
             x={0}
             y={0}
-            width={800}
-            height={600}
+            width={canvasWidth}
+            height={canvasHeight}
             fill="white"
             listening={false}
           />
@@ -376,97 +200,317 @@ export default function DrawingCanvas({
               image={bgImage}
               x={0}
               y={0}
-              width={800}
-              height={600}
+              width={canvasWidth}
+              height={canvasHeight}
               listening={false}
             />
           )}
-          {lines.map((line, i) => {
-            if (line.type === 'fill') {
-              const img = fillImages.get(i);
-              if (img) {
-                return (
-                  <Image
-                    key={i}
-                    image={img}
-                    x={line.x || 0}
-                    y={line.y || 0}
-                    width={line.width || 800}
-                    height={line.height || 600}
-                    globalCompositeOperation="source-over"
-                  />
-                );
-              }
-              return null;
-            }
+          {/* Render draggable and rotatable stone images */}
+          {stoneImages.map((stone) => {
+            const img = stoneImageElements.get(stone.id);
+            if (!img) return null;
+            const isSelected = selectedStoneId === stone.id;
+            
+            // Use live position if available (during drag/transform), otherwise use stored position
+            const livePos = liveStonePositions.get(stone.id);
+            const currentX = livePos?.x ?? stone.x;
+            const currentY = livePos?.y ?? stone.y;
+            const currentRotation = livePos?.rotation ?? stone.rotation;
+            
+            // Calculate position for display
+            const pixelsToMetersX = canvasSizeX / canvasWidth;
+            const pixelsToMetersY = canvasSizeY / canvasHeight;
+            const distanceLeft = currentX * pixelsToMetersX;
+            const distanceTop = currentY * pixelsToMetersY;
+            
+            // Calculate size in meters
+            const widthInMeters = stone.width * pixelsToMetersX;
+            const heightInMeters = stone.height * pixelsToMetersY;
+            
+            // Calculate bounding box for constraint checking (with rotation)
+            const halfWidth = stone.width / 2;
+            const halfHeight = stone.height / 2;
+            const cos = Math.cos((currentRotation * Math.PI) / 180);
+            const sin = Math.sin((currentRotation * Math.PI) / 180);
+            
+            // Calculate rotated corners
+            const corners = [
+              { x: -halfWidth, y: -halfHeight },
+              { x: halfWidth, y: -halfHeight },
+              { x: halfWidth, y: halfHeight },
+              { x: -halfWidth, y: halfHeight },
+            ].map(corner => ({
+              x: currentX + corner.x * cos - corner.y * sin,
+              y: currentY + corner.x * sin + corner.y * cos,
+            }));
+            
+            // Find min/max bounds
+            const minX = Math.min(...corners.map(c => c.x));
+            const maxX = Math.max(...corners.map(c => c.x));
+            const minY = Math.min(...corners.map(c => c.y));
+            const maxY = Math.max(...corners.map(c => c.y));
+            
             return (
-              <Line
-                key={i}
-                points={line.points}
-                stroke={line.type === 'eraser' ? '#FFFFFF' : '#000000'}
-                strokeWidth={line.brushSize}
-                tension={line.type === 'line' ? 0 : 0.5}
-                lineCap="round"
-                lineJoin="round"
-                globalCompositeOperation={line.type === 'eraser' ? 'destination-out' : 'source-over'}
+              <Group
+                key={stone.id}
+                ref={(node: any) => {
+                  if (node) {
+                    stoneGroupRefs.current.set(stone.id, node);
+                  } else {
+                    stoneGroupRefs.current.delete(stone.id);
+                  }
+                }}
+                x={currentX}
+                y={currentY}
+                rotation={currentRotation}
+                draggable
+                dragBoundFunc={(pos: { x: number; y: number }) => {
+                  // Constrain dragging to keep image within canvas (with rotation)
+                  const cos = Math.cos((currentRotation * Math.PI) / 180);
+                  const sin = Math.sin((currentRotation * Math.PI) / 180);
+                  const newCorners = [
+                    { x: -halfWidth, y: -halfHeight },
+                    { x: halfWidth, y: -halfHeight },
+                    { x: halfWidth, y: halfHeight },
+                    { x: -halfWidth, y: halfHeight },
+                  ].map(corner => ({
+                    x: pos.x + corner.x * cos - corner.y * sin,
+                    y: pos.y + corner.x * sin + corner.y * cos,
+                  }));
+                  
+                  const newMinX = Math.min(...newCorners.map(c => c.x));
+                  const newMaxX = Math.max(...newCorners.map(c => c.x));
+                  const newMinY = Math.min(...newCorners.map(c => c.y));
+                  const newMaxY = Math.max(...newCorners.map(c => c.y));
+                  
+                  let constrainedX = pos.x;
+                  let constrainedY = pos.y;
+                  
+                  if (newMinX < 0) constrainedX = pos.x - newMinX;
+                  if (newMaxX > canvasWidth) constrainedX = pos.x - (newMaxX - canvasWidth);
+                  if (newMinY < 0) constrainedY = pos.y - newMinY;
+                  if (newMaxY > canvasHeight) constrainedY = pos.y - (newMaxY - canvasHeight);
+                  
+                  return { x: constrainedX, y: constrainedY };
+                }}
+                onClick={(e: any) => {
+                  e.cancelBubble = true;
+                  setSelectedStoneId(stone.id);
+                }}
+                onDragMove={(e: { target: any }) => {
+                  const node = e.target;
+                  if (!node) return;
+                  
+                  const newX = node.x();
+                  const newY = node.y();
+                  
+                  // Update live position for real-time tracking
+                  setLiveStonePositions(prev => {
+                    const updated = new Map(prev);
+                    updated.set(stone.id, { x: newX, y: newY, rotation: currentRotation });
+                    return updated;
+                  });
+                }}
+                onDragEnd={(e: { target: any }) => {
+                  const node = e.target;
+                  if (!node) return;
+                  
+                  const newX = node.x();
+                  const newY = node.y();
+                  
+                  // Clear live position and update stored position
+                  setLiveStonePositions(prev => {
+                    const updated = new Map(prev);
+                    updated.delete(stone.id);
+                    return updated;
+                  });
+                  
+                  setStoneImages(stoneImages.map(s => 
+                    s.id === stone.id 
+                      ? { ...s, x: newX, y: newY }
+                      : s
+                  ));
+                }}
+                onTransform={(e: { target: any }) => {
+                  const node = e.target;
+                  if (!node) return;
+                  
+                  const newX = node.x();
+                  const newY = node.y();
+                  const newRotation = node.rotation();
+                  
+                  // Constrain transform to keep image within canvas
+                  const cos = Math.cos((newRotation * Math.PI) / 180);
+                  const sin = Math.sin((newRotation * Math.PI) / 180);
+                  const corners = [
+                    { x: -halfWidth, y: -halfHeight },
+                    { x: halfWidth, y: -halfHeight },
+                    { x: halfWidth, y: halfHeight },
+                    { x: -halfWidth, y: halfHeight },
+                  ].map(corner => ({
+                    x: newX + corner.x * cos - corner.y * sin,
+                    y: newY + corner.x * sin + corner.y * cos,
+                  }));
+                  
+                  const transformMinX = Math.min(...corners.map(c => c.x));
+                  const transformMaxX = Math.max(...corners.map(c => c.x));
+                  const transformMinY = Math.min(...corners.map(c => c.y));
+                  const transformMaxY = Math.max(...corners.map(c => c.y));
+                  
+                  let constrainedX = newX;
+                  let constrainedY = newY;
+                  
+                  if (transformMinX < 0) constrainedX = newX - transformMinX;
+                  if (transformMaxX > canvasWidth) constrainedX = newX - (transformMaxX - canvasWidth);
+                  if (transformMinY < 0) constrainedY = newY - transformMinY;
+                  if (transformMaxY > canvasHeight) constrainedY = newY - (transformMaxY - canvasHeight);
+                  
+                  node.x(constrainedX);
+                  node.y(constrainedY);
+                  
+                  // Update live position for real-time tracking
+                  setLiveStonePositions(prev => {
+                    const updated = new Map(prev);
+                    updated.set(stone.id, { x: constrainedX, y: constrainedY, rotation: newRotation });
+                    return updated;
+                  });
+                }}
+                onTransformEnd={(e: { target: any }) => {
+                  const node = e.target;
+                  if (!node) return;
+                  
+                  const newX = node.x();
+                  const newY = node.y();
+                  const newRotation = node.rotation();
+                  
+                  // Clear live position and update stored position
+                  setLiveStonePositions(prev => {
+                    const updated = new Map(prev);
+                    updated.delete(stone.id);
+                    return updated;
+                  });
+                  
+                  setStoneImages(stoneImages.map(s => 
+                    s.id === stone.id 
+                      ? { ...s, x: newX, y: newY, rotation: newRotation }
+                      : s
+                  ));
+                }}
+              >
+              <Image
+                image={img}
+                x={-stone.width / 2}
+                y={-stone.height / 2}
+                width={stone.width}
+                height={stone.height}
+                listening={true}
               />
-            );
-          })}
-          {tempLine && (
-            <>
-              <Line
-                points={[tempLine.startX, tempLine.startY, tempLine.endX, tempLine.endY]}
-                stroke="#000000"
-                strokeWidth={brushSize}
-                tension={0}
-                lineCap="round"
-                globalCompositeOperation="source-over"
-              />
-              {(lineAngle !== null || lineLength !== null) && (
+              {/* Blue border when selected or moving */}
+              {(isSelected || livePos) && (
+                <Rect
+                  x={-stone.width / 2 - 2}
+                  y={-stone.height / 2 - 2}
+                  width={stone.width + 4}
+                  height={stone.height + 4}
+                  stroke="#3B82F6"
+                  strokeWidth={3}
+                  listening={false}
+                />
+              )}
+              {/* Show position and rotation info when selected or moving */}
+              {(isSelected || livePos) && (
                 <>
                   <Text
-                    x={tempLine.endX + 10}
-                    y={tempLine.endY - 30}
-                    text={`${Math.round(lineAngle || 0)}°`}
-                    fontSize={12}
+                      x={stone.width / 2 + 10}
+                      y={-stone.height / 2 - 50}
+                      text={`Left: ${distanceLeft.toFixed(3)}m`}
+                      fontSize={11}
                     fill="#FF1493"
                     fontStyle="bold"
+                      listening={false}
+                      shadowColor="white"
+                      shadowBlur={3}
                   />
-                  {lineLength !== null && (
                     <Text
-                      x={tempLine.endX + 10}
-                      y={tempLine.endY - 15}
-                      text={`Length: ${lineLength.toFixed(3)}m`}
-                      fontSize={12}
+                      x={stone.width / 2 + 10}
+                      y={-stone.height / 2 - 35}
+                      text={`Top: ${distanceTop.toFixed(3)}m`}
+                      fontSize={11}
                       fill="#FF1493"
                       fontStyle="bold"
+                      listening={false}
+                      shadowColor="white"
+                      shadowBlur={3}
                     />
-                  )}
-                  {distanceToLeft !== null && distanceToTop !== null && (
                     <Text
-                      x={tempLine.endX + 10}
-                      y={tempLine.endY}
-                      text={`Left: ${distanceToLeft.toFixed(3)}m, Top: ${distanceToTop.toFixed(3)}m`}
-                      fontSize={12}
+                      x={stone.width / 2 + 10}
+                      y={-stone.height / 2 - 20}
+                      text={`Rotation: ${Math.round(currentRotation)}°`}
+                      fontSize={11}
                       fill="#FF1493"
                       fontStyle="bold"
+                      listening={false}
+                      shadowColor="white"
+                      shadowBlur={3}
                     />
-                  )}
                 </>
               )}
-            </>
-          )}
-          {/* Show mouse position info when line or pen tool is selected (before drawing) */}
-          {mousePosition && (tool === 'line' || tool === 'pen') && !isDrawing && distanceToLeft !== null && distanceToTop !== null && (
+                {/* Show size labels inside image near edges - width on top, height on right */}
+                {/* Width label on top edge (inside) */}
+                <Text
+                  x={0}
+                  y={-stone.height / 2 + 12}
+                  text={`${widthInMeters.toFixed(3)} m`}
+                  fontSize={11}
+                  fill="#3B82F6"
+                  fontStyle="bold"
+                  listening={false}
+                  shadowColor="white"
+                  shadowBlur={3}
+                  align="center"
+                />
+                {/* Height label on right edge (inside) */}
             <Text
-              x={mousePosition.x + 10}
-              y={mousePosition.y - 10}
-              text={`Left: ${distanceToLeft.toFixed(3)}m, Top: ${distanceToTop.toFixed(3)}m`}
-              fontSize={12}
-              fill="#FF1493"
+                  x={stone.width / 2 - 12}
+                  y={0}
+                  text={`${heightInMeters.toFixed(3)} m`}
+                  fontSize={11}
+                  fill="#3B82F6"
               fontStyle="bold"
-            />
-          )}
+                  listening={false}
+                  shadowColor="white"
+                  shadowBlur={3}
+                  align="center"
+                  rotation={90}
+                />
+                
+              </Group>
+            );
+          })}
+          
+          {/* Transformer for rotation handle - only show when selected */}
+          {selectedStoneId && stoneGroupRefs.current.has(selectedStoneId) && KonvaComponents && (() => {
+            const node = stoneGroupRefs.current.get(selectedStoneId);
+            if (!node) return null;
+            
+            return (
+              <Transformer
+                ref={transformerRef}
+                nodes={[node]}
+                rotateEnabled={true}
+                resizeEnabled={false}
+                enabledAnchors={[]}
+                borderEnabled={false}
+                ignoreStroke={true}
+                rotateAnchorOffset={30}
+                rotateAnchorFill="#3B82F6"
+                rotateAnchorStroke="#1E40AF"
+                rotateAnchorStrokeWidth={2}
+                rotateAnchorSize={10}
+              />
+            );
+          })()}
+          
         </Layer>
       </Stage>
     </div>
