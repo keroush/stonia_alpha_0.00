@@ -184,38 +184,22 @@ export default function Home() {
 
   // Function to update crop selection based on shape and size
   const updateCropSelectionFromShape = (centerX: number, centerY: number, updatePosition: boolean = true) => {
-    if (!slabImageRef.current || !slabContainerRef.current) return;
+    if (!slabImageRef.current || !slabContainerRef.current || !selectedSlabImage) return;
     
     const imgRect = slabImageRef.current.getBoundingClientRect();
     const imgDisplayWidth = imgRect.width;
     const imgDisplayHeight = imgRect.height;
     
-    // Calculate canvas dimensions for scale conversion
-    const maxDisplaySize = 1200;
-    const aspectRatio = canvasSizeX / canvasSizeY;
-    let canvasWidth = 800;
-    let canvasHeight = 600;
+    // Find the selected slab image to get its size properties
+    const selectedSlab = slabImages.find(slab => slab.url === selectedSlabImage);
+    if (!selectedSlab) return;
     
-    if (aspectRatio >= 1) {
-      canvasWidth = Math.min(maxDisplaySize, 800);
-      canvasHeight = canvasWidth / aspectRatio;
-    } else {
-      canvasHeight = Math.min(maxDisplaySize, 600);
-      canvasWidth = canvasHeight * aspectRatio;
-    }
-    
-    if (canvasWidth < 400) {
-      canvasWidth = 400;
-      canvasHeight = canvasWidth / aspectRatio;
-    }
-    if (canvasHeight < 300) {
-      canvasHeight = 300;
-      canvasWidth = canvasHeight * aspectRatio;
-    }
+    // Use the slab image's example size to calculate pixels-to-meters conversion
+    // The image display size represents the slab's example size in meters
+    const pixelsToMetersX = selectedSlab.exampleWidthMeters / imgDisplayWidth;
+    const pixelsToMetersY = selectedSlab.exampleHeightMeters / imgDisplayHeight;
     
     // Convert meters to pixels (in image display space)
-    const pixelsToMetersX = canvasSizeX / canvasWidth;
-    const pixelsToMetersY = canvasSizeY / canvasHeight;
     const widthInPixels = shapeWidth / pixelsToMetersX;
     const heightInPixels = shapeHeight / pixelsToMetersY;
     
@@ -419,12 +403,12 @@ export default function Home() {
     const displayWidth = shapeWidth / pixelsToMetersX;
     const displayHeight = shapeHeight / pixelsToMetersY;
     
-    // Store crop selection in display coordinates for later display
-    const displayCropSelection = {
-      startX: Math.min(cropSelection.startX, cropSelection.endX),
-      startY: Math.min(cropSelection.startY, cropSelection.endY),
-      endX: Math.max(cropSelection.startX, cropSelection.endX),
-      endY: Math.max(cropSelection.startY, cropSelection.endY),
+    // Store crop selection in natural image coordinates (scale-independent) for later display
+    const naturalCropSelection = {
+      startX: Math.min(cropSelection.startX, cropSelection.endX) * scaleX,
+      startY: Math.min(cropSelection.startY, cropSelection.endY) * scaleY,
+      endX: Math.max(cropSelection.startX, cropSelection.endX) * scaleX,
+      endY: Math.max(cropSelection.startY, cropSelection.endY) * scaleY,
     };
     
     // Add to canvas stone images array (positioned at center initially)
@@ -437,7 +421,7 @@ export default function Home() {
       height: displayHeight,
       rotation: 0,
       originalImageUrl: selectedSlabImage,
-      cropSelection: displayCropSelection,
+      cropSelection: naturalCropSelection,
     };
     setStoneImages([...stoneImages, newStoneImage]);
 
@@ -468,17 +452,19 @@ export default function Home() {
     const imgTop = imgRect.top - containerRect.top;
     const overlayLeft = parseFloat(cropOverlayStyle.left) - imgLeft;
     const overlayTop = parseFloat(cropOverlayStyle.top) - imgTop;
-    const overlayWidth = parseFloat(cropOverlayStyle.width);
-    const overlayHeight = parseFloat(cropOverlayStyle.height);
+    
+    // Preserve the original crop size (don't change it)
+    const originalCropWidth = viewingStone.cropSelection.endX - viewingStone.cropSelection.startX;
+    const originalCropHeight = viewingStone.cropSelection.endY - viewingStone.cropSelection.startY;
 
-    // Calculate crop coordinates in natural image space
+    // Calculate crop coordinates in natural image space (preserve size, only change position)
     const startX = overlayLeft * scaleX;
     const startY = overlayTop * scaleY;
-    const endX = (overlayLeft + overlayWidth) * scaleX;
-    const endY = (overlayTop + overlayHeight) * scaleY;
+    const endX = startX + originalCropWidth;
+    const endY = startY + originalCropHeight;
 
-    const cropWidth = endX - startX;
-    const cropHeight = endY - startY;
+    const cropWidth = originalCropWidth;
+    const cropHeight = originalCropHeight;
 
     // Create a canvas to crop the image
     const canvas = document.createElement('canvas');
@@ -497,54 +483,16 @@ export default function Home() {
     // Convert to data URL
     const croppedDataURL = canvas.toDataURL('image/png');
 
-    // Calculate canvas dimensions
-    const aspectRatio = canvasSizeX / canvasSizeY;
-    const maxCanvasSize = 1200;
-    let canvasWidth = 800;
-    let canvasHeight = 600;
-    
-    if (aspectRatio >= 1) {
-      canvasWidth = Math.min(maxCanvasSize, 800);
-      canvasHeight = canvasWidth / aspectRatio;
-    } else {
-      canvasHeight = Math.min(maxCanvasSize, 600);
-      canvasWidth = canvasHeight * aspectRatio;
-    }
-    
-    if (canvasWidth < 400) {
-      canvasWidth = 400;
-      canvasHeight = canvasWidth / aspectRatio;
-    }
-    if (canvasHeight < 300) {
-      canvasHeight = 300;
-      canvasWidth = canvasHeight * aspectRatio;
-    }
-
-    // Calculate pixels-to-meters conversion
-    const pixelsToMetersX = canvasSizeX / canvasWidth;
-    const pixelsToMetersY = canvasSizeY / canvasHeight;
-
-    // Calculate new size in pixels based on the crop size
-    const newWidthInPixels = overlayWidth;
-    const newHeightInPixels = overlayHeight;
-    const newWidthMeters = newWidthInPixels * pixelsToMetersX;
-    const newHeightMeters = newHeightInPixels * pixelsToMetersY;
-
-    // Convert to canvas pixels
-    const displayWidth = newWidthMeters / pixelsToMetersX;
-    const displayHeight = newHeightMeters / pixelsToMetersY;
-
-    // Update the stone image
+    // Update the stone image - preserve size, only update position and imageData
     const updatedStone: StoneImage = {
       ...viewingStone,
       imageData: croppedDataURL,
-      width: displayWidth,
-      height: displayHeight,
+      // Keep original width and height (don't change size)
       cropSelection: {
-        startX: overlayLeft,
-        startY: overlayTop,
-        endX: overlayLeft + overlayWidth,
-        endY: overlayTop + overlayHeight,
+        startX: startX,
+        startY: startY,
+        endX: endX,
+        endY: endY,
       },
     };
 
@@ -1006,40 +954,18 @@ export default function Home() {
                       const imgDisplayWidth = imgRect.width;
                       const imgDisplayHeight = imgRect.height;
                       
-                      if (isDraggingSelection && dragOffset) {
+                      if (isDraggingSelection && dragOffset && selectedSlabImage) {
+                        // Find the selected slab image to get its size properties
+                        const selectedSlab = slabImages.find(slab => slab.url === selectedSlabImage);
+                        if (!selectedSlab) return;
+                        
                         // Calculate new position relative to image
                         const newImgX = x - imgLeft - dragOffset.x;
                         const newImgY = y - imgTop - dragOffset.y;
                         
-                        // Use updateCropSelectionFromShape which will handle constraints properly
-                        // Don't update position during drag to prevent jumps
-                        updateCropSelectionFromShape(newImgX, newImgY, false);
-                        
-                        // Calculate canvas dimensions for scale conversion
-                        const maxDisplaySize = 1200;
-                        const aspectRatio = canvasSizeX / canvasSizeY;
-                        let canvasWidth = 800;
-                        let canvasHeight = 600;
-                        
-                        if (aspectRatio >= 1) {
-                          canvasWidth = Math.min(maxDisplaySize, 800);
-                          canvasHeight = canvasWidth / aspectRatio;
-                        } else {
-                          canvasHeight = Math.min(maxDisplaySize, 600);
-                          canvasWidth = canvasHeight * aspectRatio;
-                        }
-                        
-                        if (canvasWidth < 400) {
-                          canvasWidth = 400;
-                          canvasHeight = canvasWidth / aspectRatio;
-                        }
-                        if (canvasHeight < 300) {
-                          canvasHeight = 300;
-                          canvasWidth = canvasHeight * aspectRatio;
-                        }
-                        
-                        const pixelsToMetersX = canvasSizeX / canvasWidth;
-                        const pixelsToMetersY = canvasSizeY / canvasHeight;
+                        // Use the slab image's example size to calculate pixels-to-meters conversion
+                        const pixelsToMetersX = selectedSlab.exampleWidthMeters / imgDisplayWidth;
+                        const pixelsToMetersY = selectedSlab.exampleHeightMeters / imgDisplayHeight;
                         const widthInPixels = shapeWidth / pixelsToMetersX;
                         const heightInPixels = shapeHeight / pixelsToMetersY;
                         
@@ -1095,40 +1021,24 @@ export default function Home() {
                         newCenterX = Math.max(halfWidth, Math.min(newCenterX, imgDisplayWidth - halfWidth));
                         newCenterY = Math.max(halfHeight, Math.min(newCenterY, imgDisplayHeight - halfHeight));
                         
-                        // Calculate canvas dimensions for scale conversion
-                        const maxDisplaySize = 1200;
-                        const aspectRatio = canvasSizeX / canvasSizeY;
-                        let canvasWidth = 800;
-                        let canvasHeight = 600;
-                        
-                        if (aspectRatio >= 1) {
-                          canvasWidth = Math.min(maxDisplaySize, 800);
-                          canvasHeight = canvasWidth / aspectRatio;
-                        } else {
-                          canvasHeight = Math.min(maxDisplaySize, 600);
-                          canvasWidth = canvasHeight * aspectRatio;
+                        // Find the selected slab image to get its size properties
+                        if (selectedSlabImage) {
+                          const selectedSlab = slabImages.find(slab => slab.url === selectedSlabImage);
+                          if (selectedSlab) {
+                            // Use the slab image's example size to calculate pixels-to-meters conversion
+                            const pixelsToMetersX = selectedSlab.exampleWidthMeters / imgDisplayWidth;
+                            const pixelsToMetersY = selectedSlab.exampleHeightMeters / imgDisplayHeight;
+                            
+                            // Update width and height in meters
+                            const newWidthMeters = newWidth * pixelsToMetersX;
+                            const newHeightMeters = newHeight * pixelsToMetersY;
+                            
+                            setShapeWidth(newWidthMeters);
+                            setShapeHeight(newHeightMeters);
+                            setShapePosition({ x: newCenterX, y: newCenterY });
+                            updateCropSelectionFromShape(newCenterX, newCenterY, false);
+                          }
                         }
-                        
-                        if (canvasWidth < 400) {
-                          canvasWidth = 400;
-                          canvasHeight = canvasWidth / aspectRatio;
-                        }
-                        if (canvasHeight < 300) {
-                          canvasHeight = 300;
-                          canvasWidth = canvasHeight * aspectRatio;
-                        }
-                        
-                        const pixelsToMetersX = canvasSizeX / canvasWidth;
-                        const pixelsToMetersY = canvasSizeY / canvasHeight;
-                        
-                        // Update width and height in meters
-                        const newWidthMeters = newWidth * pixelsToMetersX;
-                        const newHeightMeters = newHeight * pixelsToMetersY;
-                        
-                        setShapeWidth(newWidthMeters);
-                        setShapeHeight(newHeightMeters);
-                        setShapePosition({ x: newCenterX, y: newCenterY });
-                        updateCropSelectionFromShape(newCenterX, newCenterY, false);
                       }
                     }}
                     onMouseUp={() => {
@@ -1386,7 +1296,7 @@ export default function Home() {
             <div
               ref={viewStoneContainerRef}
               className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100"
-              style={{ maxHeight: '60vh' }}
+              style={{ height: '60vh' }}
               onMouseMove={(e) => {
                 if (!viewStoneImageRef.current || !viewStoneContainerRef.current || !viewingStone || !cropOverlayStyle) return;
                 
@@ -1422,7 +1332,7 @@ export default function Home() {
               }}
               onMouseUp={() => {
                 if (isDraggingViewOverlay) {
-                  // Update the viewingStone's cropSelection and recrop the image
+                  // Update the viewingStone's cropSelection and recrop the image (preserve size, only change position)
                   if (viewStoneImageRef.current && viewStoneContainerRef.current && viewingStone && cropOverlayStyle) {
                     const img = viewStoneImageRef.current;
                     const containerRect = viewStoneContainerRef.current.getBoundingClientRect();
@@ -1441,17 +1351,19 @@ export default function Home() {
                     const imgTop = imgRect.top - containerRect.top;
                     const overlayLeft = parseFloat(cropOverlayStyle.left) - imgLeft;
                     const overlayTop = parseFloat(cropOverlayStyle.top) - imgTop;
-                    const overlayWidth = parseFloat(cropOverlayStyle.width);
-                    const overlayHeight = parseFloat(cropOverlayStyle.height);
+                    
+                    // Preserve the original crop size (don't change it)
+                    const originalCropWidth = viewingStone.cropSelection.endX - viewingStone.cropSelection.startX;
+                    const originalCropHeight = viewingStone.cropSelection.endY - viewingStone.cropSelection.startY;
+                    
+                    // Calculate new crop position in natural image coordinates
+                    const newStartX = overlayLeft * scaleX;
+                    const newStartY = overlayTop * scaleY;
+                    const newEndX = newStartX + originalCropWidth;
+                    const newEndY = newStartY + originalCropHeight;
 
-                    // Calculate crop coordinates in natural image space
-                    const startX = overlayLeft * scaleX;
-                    const startY = overlayTop * scaleY;
-                    const endX = (overlayLeft + overlayWidth) * scaleX;
-                    const endY = (overlayTop + overlayHeight) * scaleY;
-
-                    const cropWidth = endX - startX;
-                    const cropHeight = endY - startY;
+                    const cropWidth = originalCropWidth;
+                    const cropHeight = originalCropHeight;
 
                     // Create a canvas to crop the image
                     const canvas = document.createElement('canvas');
@@ -1462,61 +1374,23 @@ export default function Home() {
                       // Draw the cropped portion
                       ctx.drawImage(
                         img,
-                        startX, startY, cropWidth, cropHeight,
+                        newStartX, newStartY, cropWidth, cropHeight,
                         0, 0, cropWidth, cropHeight
                       );
 
                       // Convert to data URL
                       const croppedDataURL = canvas.toDataURL('image/png');
 
-                      // Calculate canvas dimensions
-                      const aspectRatio = canvasSizeX / canvasSizeY;
-                      const maxCanvasSize = 1200;
-                      let canvasWidth = 800;
-                      let canvasHeight = 600;
-                      
-                      if (aspectRatio >= 1) {
-                        canvasWidth = Math.min(maxCanvasSize, 800);
-                        canvasHeight = canvasWidth / aspectRatio;
-                      } else {
-                        canvasHeight = Math.min(maxCanvasSize, 600);
-                        canvasWidth = canvasHeight * aspectRatio;
-                      }
-                      
-                      if (canvasWidth < 400) {
-                        canvasWidth = 400;
-                        canvasHeight = canvasWidth / aspectRatio;
-                      }
-                      if (canvasHeight < 300) {
-                        canvasHeight = 300;
-                        canvasWidth = canvasHeight * aspectRatio;
-                      }
-
-                      // Calculate pixels-to-meters conversion
-                      const pixelsToMetersX = canvasSizeX / canvasWidth;
-                      const pixelsToMetersY = canvasSizeY / canvasHeight;
-
-                      // Calculate new size in pixels based on the crop size
-                      const newWidthInPixels = overlayWidth;
-                      const newHeightInPixels = overlayHeight;
-                      const newWidthMeters = newWidthInPixels * pixelsToMetersX;
-                      const newHeightMeters = newHeightInPixels * pixelsToMetersY;
-
-                      // Convert to canvas pixels
-                      const displayWidth = newWidthMeters / pixelsToMetersX;
-                      const displayHeight = newHeightMeters / pixelsToMetersY;
-
-                      // Update the stone image with new cropped image
+                      // Update the stone image - preserve size, only update position and imageData
                       const updatedStone: StoneImage = {
                         ...viewingStone,
                         imageData: croppedDataURL,
-                        width: displayWidth,
-                        height: displayHeight,
+                        // Keep original width and height (don't change size)
                         cropSelection: {
-                          startX: overlayLeft,
-                          startY: overlayTop,
-                          endX: overlayLeft + overlayWidth,
-                          endY: overlayTop + overlayHeight,
+                          startX: newStartX,
+                          startY: newStartY,
+                          endX: newEndX,
+                          endY: newEndY,
                         },
                       };
 
@@ -1542,7 +1416,7 @@ export default function Home() {
                 ref={viewStoneImageRef}
                 src={viewingStone.originalImageUrl}
                 alt="Original stone slab"
-                className="w-full h-auto max-h-[60vh] object-contain pointer-events-none select-none"
+                className="w-full h-[60vh] object-cover pointer-events-none select-none"
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
                 onLoad={() => {
@@ -1551,12 +1425,26 @@ export default function Home() {
                     const imgRect = viewStoneImageRef.current.getBoundingClientRect();
                     const imgLeft = imgRect.left - containerRect.left;
                     const imgTop = imgRect.top - containerRect.top;
+                    const imgDisplayWidth = imgRect.width;
+                    const imgDisplayHeight = imgRect.height;
+                    const imgNaturalWidth = viewStoneImageRef.current.naturalWidth;
+                    const imgNaturalHeight = viewStoneImageRef.current.naturalHeight;
+                    
+                    // Calculate the scale factor from natural to display
+                    const scaleX = imgDisplayWidth / imgNaturalWidth;
+                    const scaleY = imgDisplayHeight / imgNaturalHeight;
+                    
+                    // Convert cropSelection from natural image coordinates to current display coordinates
+                    const displayStartX = viewingStone.cropSelection.startX * scaleX;
+                    const displayStartY = viewingStone.cropSelection.startY * scaleY;
+                    const displayEndX = viewingStone.cropSelection.endX * scaleX;
+                    const displayEndY = viewingStone.cropSelection.endY * scaleY;
                     
                     setCropOverlayStyle({
-                      left: `${imgLeft + viewingStone.cropSelection.startX}px`,
-                      top: `${imgTop + viewingStone.cropSelection.startY}px`,
-                      width: `${viewingStone.cropSelection.endX - viewingStone.cropSelection.startX}px`,
-                      height: `${viewingStone.cropSelection.endY - viewingStone.cropSelection.startY}px`,
+                      left: `${imgLeft + displayStartX}px`,
+                      top: `${imgTop + displayStartY}px`,
+                      width: `${displayEndX - displayStartX}px`,
+                      height: `${displayEndY - displayStartY}px`,
                     });
                   }
                 }}
@@ -1590,9 +1478,54 @@ export default function Home() {
             <div className="mt-4 p-4 bg-gray-50 rounded-lg">
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Stone Information</h3>
               <div className="text-sm text-gray-600 space-y-1">
-                <div>Position: Left {((viewingStone.x * (canvasSizeX / 800)).toFixed(3))}m, Top {((viewingStone.y * (canvasSizeY / 600)).toFixed(3))}m</div>
-                <div>Rotation: {Math.round(viewingStone.rotation)}°</div>
-                <div>Size: {viewingStone.width.toFixed(0)} × {viewingStone.height.toFixed(0)}px</div>
+                {(() => {
+                  // Calculate actual canvas dimensions
+                  const maxDisplaySize = 1200;
+                  const aspectRatio = canvasSizeX / canvasSizeY;
+                  let canvasWidth = 800;
+                  let canvasHeight = 600;
+                  
+                  if (aspectRatio >= 1) {
+                    canvasWidth = Math.min(maxDisplaySize, 800);
+                    canvasHeight = canvasWidth / aspectRatio;
+                  } else {
+                    canvasHeight = Math.min(maxDisplaySize, 600);
+                    canvasWidth = canvasHeight * aspectRatio;
+                  }
+                  
+                  if (canvasWidth < 400) {
+                    canvasWidth = 400;
+                    canvasHeight = canvasWidth / aspectRatio;
+                  }
+                  if (canvasHeight < 300) {
+                    canvasHeight = 300;
+                    canvasWidth = canvasHeight * aspectRatio;
+                  }
+                  
+                  const pixelsToMetersX = canvasSizeX / canvasWidth;
+                  const pixelsToMetersY = canvasSizeY / canvasHeight;
+                  const distanceLeft = viewingStone.x * pixelsToMetersX;
+                  const distanceTop = viewingStone.y * pixelsToMetersY;
+                  
+                  // Find the slab image to get its size properties for size display
+                  const selectedSlab = slabImages.find(slab => slab.url === viewingStone.originalImageUrl);
+                  const sizeInMeters = selectedSlab ? {
+                    width: viewingStone.width * pixelsToMetersX,
+                    height: viewingStone.height * pixelsToMetersY,
+                  } : null;
+                  
+                  return (
+                    <>
+                      <div>Position: Left {distanceLeft.toFixed(3)}m, Top {distanceTop.toFixed(3)}m</div>
+                      <div>Rotation: {Math.round(viewingStone.rotation)}°</div>
+                      {sizeInMeters ? (
+                        <div>Size: {sizeInMeters.width.toFixed(3)}m × {sizeInMeters.height.toFixed(3)}m</div>
+                      ) : (
+                        <div>Size: {viewingStone.width.toFixed(0)} × {viewingStone.height.toFixed(0)}px</div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
             {viewSelectionModified && (
