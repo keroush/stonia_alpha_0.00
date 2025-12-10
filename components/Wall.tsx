@@ -78,7 +78,7 @@ function createWallOnSide(
   scene: THREE.Scene,
   x: number,
   z: number,
-  side: 'north' | 'south' | 'east' | 'west',
+  side: 'north' | 'south' | 'east' | 'west' | 'left' | 'right',
   housesRef: React.MutableRefObject<THREE.Mesh[]>
 ) {
   const houseSpacing = 15; // Size of ground piece
@@ -93,16 +93,23 @@ function createWallOnSide(
     checkPosition = { x, z: z + houseSpacing / 2 };
   } else if (side === 'east' || side === 'right') {
     checkPosition = { x: x + houseSpacing / 2, z };
-  } else { // west or left
+  } else if (side === 'west' || side === 'left') {
     checkPosition = { x: x - houseSpacing / 2, z };
+  } else {
+    checkPosition = { x, z };
   }
 
-  const existingWall = housesRef.current.find(h => 
-    Math.abs(h.position.x - checkPosition.x) < 0.1 && 
-    Math.abs(h.position.z - checkPosition.z) < 0.1 &&
-    h.userData?.isWall &&
-    h.userData?.wallSide === side
-  );
+  // Normalize side for storage (east/right are equivalent, west/left are equivalent)
+  const normalizedSide = side === 'right' ? 'east' : side === 'left' ? 'west' : side;
+  
+  const existingWall = housesRef.current.find(h => {
+    if (!h.userData?.isWall) return false;
+    const storedSide = h.userData.wallSide;
+    const storedNormalized = storedSide === 'right' ? 'east' : storedSide === 'left' ? 'west' : storedSide;
+    return Math.abs(h.position.x - checkPosition.x) < 0.1 && 
+           Math.abs(h.position.z - checkPosition.z) < 0.1 &&
+           storedNormalized === normalizedSide;
+  });
   if (existingWall) return; // Wall already exists
 
   let wallGeometry: THREE.BoxGeometry;
@@ -117,9 +124,13 @@ function createWallOnSide(
   } else if (side === 'east' || side === 'right') {
     wallGeometry = new THREE.BoxGeometry(wallThickness, wallHeight, houseSpacing);
     wallPosition = { x: x + houseSpacing / 2 - wallThickness / 2, y: wallHeight / 2, z };
-  } else { // west or left
+  } else if (side === 'west' || side === 'left') {
     wallGeometry = new THREE.BoxGeometry(wallThickness, wallHeight, houseSpacing);
     wallPosition = { x: x - houseSpacing / 2 + wallThickness / 2, y: wallHeight / 2, z };
+  } else {
+    // Fallback (shouldn't happen)
+    wallGeometry = new THREE.BoxGeometry(houseSpacing, wallHeight, wallThickness);
+    wallPosition = { x, y: wallHeight / 2, z };
   }
 
   const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x8b7355 }); // Brown wall
@@ -127,7 +138,7 @@ function createWallOnSide(
   wall.position.set(wallPosition.x, wallPosition.y, wallPosition.z);
   wall.castShadow = true;
   wall.receiveShadow = true;
-  wall.userData = { isWall: true, wallSide: side };
+  wall.userData = { isWall: true, wallSide: normalizedSide };
   scene.add(wall);
   housesRef.current.push(wall);
 }
