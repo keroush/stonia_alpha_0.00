@@ -140,9 +140,9 @@ function sortBoundaryPixels(pixels: Point[]): Point[] {
     } else {
       // If no adjacent neighbor, find the closest remaining pixel
       let foundNearest: Point | null = null;
-      remaining.forEach((key) => {
+      for (const key of remaining) {
         const [x, y] = key.split(',').map(Number);
-        const point = { x, y };
+        const point: Point = { x, y };
         const dx = point.x - current.x;
         const dy = point.y - current.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -151,7 +151,7 @@ function sortBoundaryPixels(pixels: Point[]): Point[] {
           minDist = dist;
           foundNearest = point;
         }
-      });
+      }
 
       if (foundNearest) {
         sorted.push(foundNearest);
