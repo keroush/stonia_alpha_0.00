@@ -45,6 +45,8 @@ export default function DrawingCanvas({
   const transformerRef = useRef<any>(null);
   const previousImageDataRef = useRef<Map<string, string>>(new Map());
   const [liveStonePositions, setLiveStonePositions] = useState<Map<string, { x: number; y: number; rotation: number }>>(new Map());
+  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
+  const [isAltPressed, setIsAltPressed] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
@@ -118,6 +120,131 @@ export default function DrawingCanvas({
     };
   }, [selectedStoneId, onDeleteStone, setSelectedStoneId]);
 
+  // Track Ctrl and Alt key states for copy functionality
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) setIsCtrlPressed(true);
+      if (e.altKey) setIsAltPressed(true);
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!e.ctrlKey && !e.metaKey) setIsCtrlPressed(false);
+      if (!e.altKey) setIsAltPressed(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  // Handle rotation by 90 or -90 degrees
+  const handleRotate = (angle: number) => {
+    if (!selectedStoneId) return;
+    
+    const stone = stoneImages.find(s => s.id === selectedStoneId);
+    if (!stone) return;
+    
+    const newRotation = (stone.rotation + angle) % 360;
+    // Normalize to -180 to 180 range
+    const normalizedRotation = newRotation > 180 ? newRotation - 360 : newRotation < -180 ? newRotation + 360 : newRotation;
+    
+    setStoneImages(stoneImages.map(s => 
+      s.id === selectedStoneId 
+        ? { ...s, rotation: normalizedRotation }
+        : s
+    ));
+    
+    // Update the node's rotation immediately
+    const node = stoneGroupRefs.current.get(selectedStoneId);
+    if (node) {
+      node.rotation(normalizedRotation);
+      node.getLayer()?.batchDraw();
+    }
+  };
+
+  // Generate G-Code function
+  const generateGCode = () => {
+    if (stoneImages.length === 0) {
+      alert('No stone images to generate G-code for.');
+      return;
+    }
+
+    // Calculate pixels-to-meters conversion
+    const pixelsToMetersX = canvasSizeX / canvasWidth;
+    const pixelsToMetersY = canvasSizeY / canvasHeight;
+
+    // Generate a separate G-code file for each stone image
+    stoneImages.forEach((stone, index) => {
+      // Convert position from pixels to meters, then to millimeters for G-code
+      const xPosMeters = stone.x * pixelsToMetersX;
+      const yPosMeters = stone.y * pixelsToMetersY;
+      const widthMeters = stone.width * pixelsToMetersX;
+      const heightMeters = stone.height * pixelsToMetersY;
+      
+      const xPosMM = xPosMeters * 1000;
+      const yPosMM = yPosMeters * 1000;
+      const widthMM = widthMeters * 1000;
+      const heightMM = heightMeters * 1000;
+
+      // Generate G-code for this specific stone
+      let gcode = '; G-code generated for stone cutting\n';
+      gcode += '; Stone ' + (index + 1) + ' (ID: ' + stone.id + ')\n';
+      gcode += '; Position: X=' + xPosMeters.toFixed(3) + 'm, Y=' + yPosMeters.toFixed(3) + 'm\n';
+      gcode += '; Size: W=' + widthMeters.toFixed(3) + 'm, H=' + heightMeters.toFixed(3) + 'm\n';
+      gcode += '; Rotation: ' + Math.round(stone.rotation) + ' degrees\n';
+      gcode += ';\n';
+      gcode += 'G21 ; Set units to millimeters\n';
+      gcode += 'G90 ; Set to absolute positioning\n';
+      gcode += 'G28 ; Home all axes\n';
+      gcode += ';\n';
+      
+      // Move to position
+      gcode += 'G0 X' + xPosMM.toFixed(2) + ' Y' + yPosMM.toFixed(2) + ' ; Move to stone position\n';
+      
+      // Apply rotation (if supported by machine)
+      if (Math.abs(stone.rotation) > 0.1) {
+        gcode += 'G68 X' + xPosMM.toFixed(2) + ' Y' + yPosMM.toFixed(2) + ' R' + stone.rotation.toFixed(2) + ' ; Rotate coordinate system\n';
+      }
+      
+      // Cut rectangle based on stone size (starting from center, cutting outward)
+      const halfWidth = widthMM / 2;
+      const halfHeight = heightMM / 2;
+      
+      gcode += 'G0 X' + (xPosMM - halfWidth).toFixed(2) + ' Y' + (yPosMM - halfHeight).toFixed(2) + ' ; Move to start position (bottom-left)\n';
+      gcode += 'G1 Z-5 F100 ; Lower tool (adjust Z and feed rate as needed)\n';
+      gcode += 'G1 X' + (xPosMM + halfWidth).toFixed(2) + ' Y' + (yPosMM - halfHeight).toFixed(2) + ' F500 ; Cut to right\n';
+      gcode += 'G1 X' + (xPosMM + halfWidth).toFixed(2) + ' Y' + (yPosMM + halfHeight).toFixed(2) + ' F500 ; Cut to top\n';
+      gcode += 'G1 X' + (xPosMM - halfWidth).toFixed(2) + ' Y' + (yPosMM + halfHeight).toFixed(2) + ' F500 ; Cut to left\n';
+      gcode += 'G1 X' + (xPosMM - halfWidth).toFixed(2) + ' Y' + (yPosMM - halfHeight).toFixed(2) + ' F500 ; Cut to bottom (close rectangle)\n';
+      gcode += 'G0 Z5 ; Raise tool\n';
+      
+      // Reset rotation if applied
+      if (Math.abs(stone.rotation) > 0.1) {
+        gcode += 'G69 ; Cancel rotation\n';
+      }
+      
+      gcode += ';\n';
+      gcode += 'G28 ; Home all axes\n';
+      gcode += 'M30 ; Program end and rewind\n';
+
+      // Create and download the file for this stone
+      const blob = new Blob([gcode], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      // File name includes stone index and size in meters
+      const fileName = `stone_${index + 1}_${widthMeters.toFixed(3)}m_x_${heightMeters.toFixed(3)}m_${new Date().toISOString().split('T')[0]}.gcode`;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+  };
+
   // Update transformer when selection changes
   useEffect(() => {
     if (transformerRef.current && selectedStoneId) {
@@ -161,51 +288,230 @@ export default function DrawingCanvas({
     canvasWidth = canvasHeight * aspectRatio;
   }
 
+  // Calculate ruler dimensions and tick intervals
+  const rulerHeight = 20;
+  const rulerWidth = 20;
 
   if (!isClient || !KonvaComponents) {
     return (
-      <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white flex items-center justify-center" style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
-        <p className="text-gray-500">Loading canvas...</p>
+      <div className="relative" style={{ width: `${canvasWidth + rulerWidth}px`, height: `${canvasHeight + rulerHeight}px` }}>
+        <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white flex items-center justify-center" style={{ position: 'absolute', left: `${rulerWidth}px`, top: `${rulerHeight}px`, width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
+          <p className="text-gray-500">Loading canvas...</p>
+        </div>
       </div>
     );
   }
 
   const { Stage, Layer, Rect, Text, Image, Group, Transformer } = KonvaComponents;
+  const maxDimension = Math.max(canvasSizeX, canvasSizeY);
+  let tickInterval = 0.1;
+  if (maxDimension > 5) tickInterval = 0.5;
+  if (maxDimension > 10) tickInterval = 1.0;
+  if (maxDimension > 20) tickInterval = 2.0;
+
+  // Generate tick marks for horizontal ruler (top)
+  const horizontalTicks: JSX.Element[] = [];
+  const horizontalLabels: JSX.Element[] = [];
+  for (let meters = 0; meters <= canvasSizeX; meters += tickInterval) {
+    const x = (meters / canvasSizeX) * canvasWidth;
+    const tickHeight = meters % (tickInterval * 5) === 0 ? 12 : 6;
+    horizontalTicks.push(
+      <div
+        key={`h-tick-${meters}`}
+        style={{
+          position: 'absolute',
+          left: `${x}px`,
+          top: '0',
+          width: '1px',
+          height: `${tickHeight}px`,
+          backgroundColor: '#666',
+        }}
+      />
+    );
+    if (meters % (tickInterval * 5) === 0 && meters > 0) {
+      horizontalLabels.push(
+        <div
+          key={`h-label-${meters}`}
+          style={{
+            position: 'absolute',
+            left: `${x}px`,
+            top: `${tickHeight + 2}px`,
+            fontSize: '10px',
+            color: '#333',
+            transform: 'translateX(-50%)',
+            whiteSpace: 'nowrap',
+            zIndex: 10,
+          }}
+        >
+          {meters.toFixed(1)}m
+        </div>
+      );
+    }
+  }
+
+  // Generate tick marks for vertical ruler (left)
+  const verticalTicks: JSX.Element[] = [];
+  const verticalLabels: JSX.Element[] = [];
+  for (let meters = 0; meters <= canvasSizeY; meters += tickInterval) {
+    const y = (meters / canvasSizeY) * canvasHeight;
+    const tickWidth = meters % (tickInterval * 5) === 0 ? 12 : 6;
+    verticalTicks.push(
+      <div
+        key={`v-tick-${meters}`}
+        style={{
+          position: 'absolute',
+          left: '0',
+          top: `${y}px`,
+          width: `${tickWidth}px`,
+          height: '1px',
+          backgroundColor: '#666',
+        }}
+      />
+    );
+    if (meters % (tickInterval * 5) === 0 && meters > 0) {
+      verticalLabels.push(
+        <div
+          key={`v-label-${meters}`}
+          style={{
+            position: 'absolute',
+            left: `${tickWidth + 2}px`,
+            top: `${y}px`,
+            fontSize: '10px',
+            color: '#333',
+            transform: 'translateY(-50%)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {meters.toFixed(1)}m
+        </div>
+      );
+    }
+  }
 
   return (
-    <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white relative" style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
-      <Stage
-        ref={stageRef}
-        width={canvasWidth}
-        height={canvasHeight}
-        onClick={(e: any) => {
-          // Deselect stone if clicking on empty space
-          const clickedOnEmpty = e.target === e.target.getStage();
-          if (clickedOnEmpty) {
-            setSelectedStoneId(null);
-          }
+    <div className="relative mt-16" style={{ width: `${canvasWidth + rulerWidth}px`, height: `${canvasHeight + rulerHeight}px` }}>
+        {/* Generate G-Code Button */}
+        <div className='absolute left-0 -top-16 grid grid-cols-3 gap-4'>
+        <div className='px-6 py-2 bg-blue-400 text-white rounded-lg hover:bg-blue-500 transition-colors justify-center font-medium flex items-center gap-2 h-12'>
+          stonia
+        </div>
+        <button
+          onClick={generateGCode}
+          disabled={stoneImages.length === 0}
+          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2 shadow-lg h-12"
+          title={stoneImages.length === 0 ? 'Add stone images to generate G-code' : 'Generate and download G-code for all stone images'}
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Generate G-Code
+        </button>
+        {/* Rotation Control Panel - appears when stone is selected */}
+        {selectedStoneId && (
+          <div className="bg-white border-2 border-blue-500 rounded-lg shadow-lg p-2">
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleRotate(-90)}
+                className="w-full px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm font-medium"
+                title="Rotate -90°"
+              >
+                ↺ -90°
+              </button>
+              <button
+                onClick={() => handleRotate(90)}
+                className="w-full px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm font-medium"
+                title="Rotate +90°"
+              >
+                ↻ +90°
+              </button>
+            </div>
+          </div>
+        )}
+        </div>
+
+      {/* Horizontal ruler (top) */}
+      <div
+        className="absolute bg-gray-100 border-b border-gray-400"
+        style={{
+          left: `${rulerWidth}px`,
+          top: '0',
+          width: `${canvasWidth}px`,
+          height: `${rulerHeight}px`,
         }}
       >
-        <Layer>
-          <Rect
-            x={0}
-            y={0}
-            width={canvasWidth}
-            height={canvasHeight}
-            fill="white"
-            listening={false}
-          />
-          {bgImage && (
-            <Image
-              image={bgImage}
+        {horizontalTicks}
+        {horizontalLabels}
+      </div>
+      
+      {/* Vertical ruler (left) */}
+      <div
+        className="absolute bg-gray-100 border-r border-gray-400"
+        style={{
+          left: '0',
+          top: `${rulerHeight}px`,
+          width: `${rulerWidth}px`,
+          height: `${canvasHeight}px`,
+        }}
+      >
+        {verticalTicks}
+        {verticalLabels}
+      </div>
+      
+      {/* Corner (top-left) */}
+      <div
+        className="absolute bg-gray-100 border-b border-r border-gray-400"
+        style={{
+          left: '0',
+          top: '0',
+          width: `${rulerWidth}px`,
+          height: `${rulerHeight}px`,
+        }}
+      />
+      
+      {/* Canvas */}
+      <div
+        className="border-2 border-gray-300 overflow-hidden bg-white"
+        style={{
+          position: 'absolute',
+          left: `${rulerWidth}px`,
+          top: `${rulerHeight}px`,
+          width: `${canvasWidth}px`,
+          height: `${canvasHeight}px`,
+        }}
+      >
+        <Stage
+          ref={stageRef}
+          width={canvasWidth}
+          height={canvasHeight}
+          onClick={(e: any) => {
+            // Deselect stone if clicking on empty space
+            const clickedOnEmpty = e.target === e.target.getStage();
+            if (clickedOnEmpty) {
+              setSelectedStoneId(null);
+            }
+          }}
+        >
+          <Layer>
+            <Rect
               x={0}
               y={0}
               width={canvasWidth}
               height={canvasHeight}
+              fill="white"
               listening={false}
             />
-          )}
-          {/* Render draggable and rotatable stone images */}
+            {bgImage && (
+              <Image
+                image={bgImage}
+                x={0}
+                y={0}
+                width={canvasWidth}
+                height={canvasHeight}
+                listening={false}
+              />
+            )}
+            
+            {/* Render draggable and rotatable stone images */}
           {stoneImages.map((stone) => {
             const img = stoneImageElements.get(stone.id);
             if (!img) return null;
@@ -318,18 +624,52 @@ export default function DrawingCanvas({
                   const newX = node.x();
                   const newY = node.y();
                   
-                  // Clear live position and update stored position
+                  // Clear live position
                   setLiveStonePositions(prev => {
                     const updated = new Map(prev);
                     updated.delete(stone.id);
                     return updated;
                   });
                   
-                  setStoneImages(stoneImages.map(s => 
-                    s.id === stone.id 
-                      ? { ...s, x: newX, y: newY }
-                      : s
-                  ));
+                  // Check if Ctrl+Alt is pressed to copy instead of move
+                  if (isCtrlPressed && isAltPressed) {
+                    // Create a copy of the stone image at the new position
+                    const newStoneImage: StoneImage = {
+                      id: `stone-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                      imageData: stone.imageData,
+                      x: newX,
+                      y: newY,
+                      width: stone.width,
+                      height: stone.height,
+                      rotation: stone.rotation,
+                      originalImageUrl: stone.originalImageUrl,
+                      cropSelection: stone.cropSelection,
+                    };
+                    
+                    // Reset the original node to its starting position
+                    node.x(stone.x);
+                    node.y(stone.y);
+                    
+                    // Add the copy and keep the original at its starting position
+                    setStoneImages([
+                      ...stoneImages.map(s => 
+                        s.id === stone.id 
+                          ? { ...s, x: stone.x, y: stone.y } // Keep original at starting position
+                          : s
+                      ),
+                      newStoneImage,
+                    ]);
+                    
+                    // Select the new copy
+                    setSelectedStoneId(newStoneImage.id);
+                  } else {
+                    // Normal move - update stored position
+                    setStoneImages(stoneImages.map(s => 
+                      s.id === stone.id 
+                        ? { ...s, x: newX, y: newY }
+                        : s
+                    ));
+                  }
                 }}
                 onTransform={(e: { target: any }) => {
                   const node = e.target;
@@ -456,7 +796,9 @@ export default function DrawingCanvas({
                 </>
               )}
                 {/* Show size labels inside image near edges - width on top, height on right */}
-                {/* Width label on top edge (inside) */}
+                {/* Width and height labels on top and right edges (inside) */}
+                {(isSelected || livePos) && 
+                (<>
                 <Text
                   x={0}
                   y={-stone.height / 2 + 12}
@@ -469,8 +811,7 @@ export default function DrawingCanvas({
                   shadowBlur={3}
                   align="center"
                 />
-                {/* Height label on right edge (inside) */}
-            <Text
+                  <Text
                   x={stone.width / 2 - 12}
                   y={0}
                   text={`${heightInMeters.toFixed(3)} m`}
@@ -483,7 +824,7 @@ export default function DrawingCanvas({
                   align="center"
                   rotation={90}
                 />
-                
+                </>)}   
               </Group>
             );
           })}
@@ -511,8 +852,19 @@ export default function DrawingCanvas({
             );
           })()}
           
-        </Layer>
-      </Stage>
+          </Layer>
+        </Stage>
+      </div>
+      
+      {/* Top Control Bar - Rotation controls and Generate G-Code button */}
+      <div
+        className="absolute flex items-center gap-3 z-20"
+        style={{
+          top: '10px',
+          right: '10px',
+        }}
+      >
+      </div>
     </div>
   );
 }

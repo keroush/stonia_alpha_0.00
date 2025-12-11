@@ -64,109 +64,6 @@ export default function Home() {
     }
   };
 
-  const generateGCode = () => {
-    if (stoneImages.length === 0) {
-      alert('No stone images to generate G-code for.');
-      return;
-    }
-
-    // Calculate canvas dimensions (same logic as in DrawingCanvas)
-    const maxDisplaySize = 1200;
-    const aspectRatio = canvasSizeX / canvasSizeY;
-    let canvasWidth = 800;
-    let canvasHeight = 600;
-    
-    if (aspectRatio >= 1) {
-      canvasWidth = Math.min(maxDisplaySize, 800);
-      canvasHeight = canvasWidth / aspectRatio;
-    } else {
-      canvasHeight = Math.min(maxDisplaySize, 600);
-      canvasWidth = canvasHeight * aspectRatio;
-    }
-    
-    if (canvasWidth < 400) {
-      canvasWidth = 400;
-      canvasHeight = canvasWidth / aspectRatio;
-    }
-    if (canvasHeight < 300) {
-      canvasHeight = 300;
-      canvasWidth = canvasHeight * aspectRatio;
-    }
-
-    // Calculate pixels-to-meters conversion
-    const pixelsToMetersX = canvasSizeX / canvasWidth;
-    const pixelsToMetersY = canvasSizeY / canvasHeight;
-
-    // Generate a separate G-code file for each stone image
-    stoneImages.forEach((stone, index) => {
-      // Convert position from pixels to meters, then to millimeters for G-code
-      const xPosMeters = stone.x * pixelsToMetersX;
-      const yPosMeters = stone.y * pixelsToMetersY;
-      const widthMeters = stone.width * pixelsToMetersX;
-      const heightMeters = stone.height * pixelsToMetersY;
-      
-      const xPosMM = xPosMeters * 1000;
-      const yPosMM = yPosMeters * 1000;
-      const widthMM = widthMeters * 1000;
-      const heightMM = heightMeters * 1000;
-
-      // Generate G-code for this specific stone
-      let gcode = '; G-code generated for stone cutting\n';
-      gcode += '; Stone ' + (index + 1) + ' (ID: ' + stone.id + ')\n';
-      gcode += '; Position: X=' + xPosMeters.toFixed(3) + 'm, Y=' + yPosMeters.toFixed(3) + 'm\n';
-      gcode += '; Size: W=' + widthMeters.toFixed(3) + 'm, H=' + heightMeters.toFixed(3) + 'm\n';
-      gcode += '; Rotation: ' + Math.round(stone.rotation) + ' degrees\n';
-      gcode += ';\n';
-      gcode += 'G21 ; Set units to millimeters\n';
-      gcode += 'G90 ; Set to absolute positioning\n';
-      gcode += 'G28 ; Home all axes\n';
-      gcode += ';\n';
-      
-      // Move to position
-      gcode += 'G0 X' + xPosMM.toFixed(2) + ' Y' + yPosMM.toFixed(2) + ' ; Move to stone position\n';
-      
-      // Apply rotation (if supported by machine)
-      if (Math.abs(stone.rotation) > 0.1) {
-        gcode += 'G68 X' + xPosMM.toFixed(2) + ' Y' + yPosMM.toFixed(2) + ' R' + stone.rotation.toFixed(2) + ' ; Rotate coordinate system\n';
-      }
-      
-      // Cut rectangle based on stone size (starting from center, cutting outward)
-      const halfWidth = widthMM / 2;
-      const halfHeight = heightMM / 2;
-      
-      gcode += 'G0 X' + (xPosMM - halfWidth).toFixed(2) + ' Y' + (yPosMM - halfHeight).toFixed(2) + ' ; Move to start position (bottom-left)\n';
-      gcode += 'G1 Z-5 F100 ; Lower tool (adjust Z and feed rate as needed)\n';
-      gcode += 'G1 X' + (xPosMM + halfWidth).toFixed(2) + ' Y' + (yPosMM - halfHeight).toFixed(2) + ' F500 ; Cut to right\n';
-      gcode += 'G1 X' + (xPosMM + halfWidth).toFixed(2) + ' Y' + (yPosMM + halfHeight).toFixed(2) + ' F500 ; Cut to top\n';
-      gcode += 'G1 X' + (xPosMM - halfWidth).toFixed(2) + ' Y' + (yPosMM + halfHeight).toFixed(2) + ' F500 ; Cut to left\n';
-      gcode += 'G1 X' + (xPosMM - halfWidth).toFixed(2) + ' Y' + (yPosMM - halfHeight).toFixed(2) + ' F500 ; Cut to bottom (close rectangle)\n';
-      gcode += 'G0 Z5 ; Raise tool\n';
-      
-      // Reset rotation if applied
-      if (Math.abs(stone.rotation) > 0.1) {
-        gcode += 'G69 ; Cancel rotation\n';
-      }
-      
-      gcode += ';\n';
-      gcode += 'G28 ; Home all axes\n';
-      gcode += 'M30 ; Program end and rewind\n';
-
-      // Create and download the file for this stone
-      const blob = new Blob([gcode], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      // File name includes stone index and size in meters
-      const fileName = `stone_${index + 1}_${widthMeters.toFixed(3)}m_x_${heightMeters.toFixed(3)}m_${new Date().toISOString().split('T')[0]}.gcode`;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    });
-  };
-
-
 
   // Stone slab images with example size properties (in meters)
   const slabImages = [
@@ -205,10 +102,13 @@ export default function Home() {
     
     // Calculate selection bounds based on shape
     let startX: number, startY: number, endX: number, endY: number;
+    let halfWidth: number, halfHeight: number;
     
     if (selectedShape === 'circle') {
       // For circle, use the larger dimension
       const radius = Math.max(widthInPixels, heightInPixels) / 2;
+      halfWidth = radius;
+      halfHeight = radius;
       startX = centerX - radius;
       startY = centerY - radius;
       endX = centerX + radius;
@@ -217,51 +117,69 @@ export default function Home() {
       // For triangle, use height as the triangle height
       const triangleHeight = heightInPixels;
       const triangleWidth = widthInPixels;
-      startX = centerX - triangleWidth / 2;
-      startY = centerY - triangleHeight / 2;
-      endX = centerX + triangleWidth / 2;
-      endY = centerY + triangleHeight / 2;
+      halfWidth = triangleWidth / 2;
+      halfHeight = triangleHeight / 2;
+      startX = centerX - halfWidth;
+      startY = centerY - halfHeight;
+      endX = centerX + halfWidth;
+      endY = centerY + halfHeight;
     } else if (selectedShape === 'cube') {
       // For cube, use width and height
-      startX = centerX - widthInPixels / 2;
-      startY = centerY - heightInPixels / 2;
-      endX = centerX + widthInPixels / 2;
-      endY = centerY + heightInPixels / 2;
+      halfWidth = widthInPixels / 2;
+      halfHeight = heightInPixels / 2;
+      startX = centerX - halfWidth;
+      startY = centerY - halfHeight;
+      endX = centerX + halfWidth;
+      endY = centerY + halfHeight;
     } else {
       // Rectangle (default)
-      startX = centerX - widthInPixels / 2;
-      startY = centerY - heightInPixels / 2;
-      endX = centerX + widthInPixels / 2;
-      endY = centerY + heightInPixels / 2;
+      halfWidth = widthInPixels / 2;
+      halfHeight = heightInPixels / 2;
+      startX = centerX - halfWidth;
+      startY = centerY - halfHeight;
+      endX = centerX + halfWidth;
+      endY = centerY + halfHeight;
     }
     
-    // Clamp to image bounds (using display dimensions)
-    const halfWidth = Math.abs(endX - startX) / 2;
-    const halfHeight = Math.abs(endY - startY) / 2;
+    // Only constrain center position if we're updating the position (not when just syncing from existing position)
+    let finalCenterX = centerX;
+    let finalCenterY = centerY;
     
-    // Constrain center position to keep selection within bounds
-    const constrainedCenterX = Math.max(halfWidth, Math.min(centerX, imgDisplayWidth - halfWidth));
-    const constrainedCenterY = Math.max(halfHeight, Math.min(centerY, imgDisplayHeight - halfHeight));
+    if (updatePosition) {
+      // Constrain center position to keep selection within bounds
+      finalCenterX = Math.max(halfWidth, Math.min(centerX, imgDisplayWidth - halfWidth));
+      finalCenterY = Math.max(halfHeight, Math.min(centerY, imgDisplayHeight - halfHeight));
+      
+      // Update shape position if it changed
+      if (finalCenterX !== centerX || finalCenterY !== centerY) {
+        setShapePosition({ x: finalCenterX, y: finalCenterY });
+      }
+    } else {
+      // When not updating position, use the exact center provided but ensure bounds are valid
+      // Just clamp the bounds, don't change the center
+      finalCenterX = centerX;
+      finalCenterY = centerY;
+    }
     
-    // Recalculate bounds with constrained center
+    // Recalculate bounds with final center
     if (selectedShape === 'circle') {
       const radius = Math.max(widthInPixels, heightInPixels) / 2;
-      startX = constrainedCenterX - radius;
-      startY = constrainedCenterY - radius;
-      endX = constrainedCenterX + radius;
-      endY = constrainedCenterY + radius;
+      startX = finalCenterX - radius;
+      startY = finalCenterY - radius;
+      endX = finalCenterX + radius;
+      endY = finalCenterY + radius;
     } else if (selectedShape === 'triangle') {
       const triangleHeight = heightInPixels;
       const triangleWidth = widthInPixels;
-      startX = constrainedCenterX - triangleWidth / 2;
-      startY = constrainedCenterY - triangleHeight / 2;
-      endX = constrainedCenterX + triangleWidth / 2;
-      endY = constrainedCenterY + triangleHeight / 2;
+      startX = finalCenterX - triangleWidth / 2;
+      startY = finalCenterY - triangleHeight / 2;
+      endX = finalCenterX + triangleWidth / 2;
+      endY = finalCenterY + triangleHeight / 2;
     } else {
-      startX = constrainedCenterX - widthInPixels / 2;
-      startY = constrainedCenterY - heightInPixels / 2;
-      endX = constrainedCenterX + widthInPixels / 2;
-      endY = constrainedCenterY + heightInPixels / 2;
+      startX = finalCenterX - widthInPixels / 2;
+      startY = finalCenterY - heightInPixels / 2;
+      endX = finalCenterX + widthInPixels / 2;
+      endY = finalCenterY + heightInPixels / 2;
     }
     
     // Final clamp to ensure bounds are within image
@@ -270,10 +188,6 @@ export default function Home() {
     endX = Math.max(0, Math.min(endX, imgDisplayWidth));
     endY = Math.max(0, Math.min(endY, imgDisplayHeight));
     
-    // Update shape position to match constrained center (only if requested and it changed)
-    if (updatePosition && (constrainedCenterX !== centerX || constrainedCenterY !== centerY)) {
-      setShapePosition({ x: constrainedCenterX, y: constrainedCenterY });
-    }
     setCropSelection({ startX, startY, endX, endY });
   };
 
@@ -692,21 +606,7 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col items-center justify-center p-4 min-w-0">
-          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-6xl">
-          {/* G-code Generation Button */}
-          <div className="mb-4 flex justify-end">
-            <button
-              onClick={generateGCode}
-              disabled={stoneImages.length === 0}
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
-              title={stoneImages.length === 0 ? 'Add stone images to generate G-code' : 'Generate and download G-code for all stone images'}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Generate G-Code
-            </button>
-          </div>
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-8xl relative">
           <DrawingCanvas
             backgroundImage={backgroundImage}
             stageRef={stageRef}
@@ -1042,24 +942,36 @@ export default function Home() {
                       }
                     }}
                     onMouseUp={() => {
+                      // Only update if we were actually dragging or resizing
+                      const wasDragging = isDraggingSelection;
+                      const wasResizing = isResizingSelection;
+                      
                       setIsDraggingSelection(false);
                       setIsResizingSelection(false);
                       setDragOffset(null);
                       setResizeHandle(null);
                       setResizeStart(null);
-                      // Just update crop selection based on current position, don't recalculate position
-                      if (shapePosition) {
+                      
+                      // Only update crop selection if we were dragging/resizing and have a position
+                      // Don't recalculate position to avoid jumps
+                      if ((wasDragging || wasResizing) && shapePosition) {
                         updateCropSelectionFromShape(shapePosition.x, shapePosition.y, false);
                       }
                     }}
                     onMouseLeave={() => {
+                      // Only update if we were actually dragging or resizing
+                      const wasDragging = isDraggingSelection;
+                      const wasResizing = isResizingSelection;
+                      
                       setIsDraggingSelection(false);
                       setIsResizingSelection(false);
                       setDragOffset(null);
                       setResizeHandle(null);
                       setResizeStart(null);
-                      // Just update crop selection based on current position, don't recalculate position
-                      if (shapePosition) {
+                      
+                      // Only update crop selection if we were dragging/resizing and have a position
+                      // Don't recalculate position to avoid jumps
+                      if ((wasDragging || wasResizing) && shapePosition) {
                         updateCropSelectionFromShape(shapePosition.x, shapePosition.y, false);
                       }
                     }}
