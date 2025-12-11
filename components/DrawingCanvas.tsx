@@ -392,9 +392,24 @@ export default function DrawingCanvas({
     <div className="relative mt-16" style={{ width: `${canvasWidth + rulerWidth}px`, height: `${canvasHeight + rulerHeight}px` }}>
         {/* Generate G-Code Button */}
         <div className='absolute left-0 -top-16 grid grid-cols-3 gap-4'>
-        <div className='px-6 py-2 bg-blue-400 text-white rounded-lg hover:bg-blue-500 transition-colors justify-center font-medium flex items-center gap-2 h-12'>
+        <button
+          onClick={() => {
+            // Store stone images data in localStorage
+            const stoneData = {
+              stoneImages: stoneImages,
+              canvasSizeX: canvasSizeX,
+              canvasSizeY: canvasSizeY,
+              canvasWidth: canvasWidth,
+              canvasHeight: canvasHeight,
+            };
+            localStorage.setItem('stonia3DData', JSON.stringify(stoneData));
+            const url = `/canvas3DPre?width=${canvasSizeX}&height=${canvasSizeY}`;
+            window.open(url, '_blank');
+          }}
+          className='px-6 py-2 bg-blue-400 text-white rounded-lg hover:bg-blue-500 transition-colors justify-center font-medium flex items-center gap-2 h-12 cursor-pointer'
+        >
           stonia
-        </div>
+        </button>
         <button
           onClick={generateGCode}
           disabled={stoneImages.length === 0}
