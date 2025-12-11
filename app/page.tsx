@@ -38,8 +38,8 @@ export default function Home() {
   const [shapePosition, setShapePosition] = useState<{ x: number; y: number } | null>(null);
   
   // Canvas size state (in meters)
-  const [canvasSizeX, setCanvasSizeX] = useState<number>(5);
-  const [canvasSizeY, setCanvasSizeY] = useState<number>(5);
+  const [canvasSizeX, setCanvasSizeX] = useState<number>(2);
+  const [canvasSizeY, setCanvasSizeY] = useState<number>(2);
   
   // Stone images on canvas
   const [stoneImages, setStoneImages] = useState<StoneImage[]>([]);
@@ -67,9 +67,9 @@ export default function Home() {
 
   // Stone slab images with example size properties (in meters)
   const slabImages = [
-    { id: 'stone1', name: 'Stone 1', url: '/images/stone.1.png', exampleWidthMeters: 2.5, exampleHeightMeters: 1.8 },
-    { id: 'stone2', name: 'Stone 2', url: '/images/stone.2.png', exampleWidthMeters: 3.0, exampleHeightMeters: 2.0 },
-    { id: 'stone3', name: 'Stone 3', url: '/images/stone.3.png', exampleWidthMeters: 2.8, exampleHeightMeters: 1.9 },
+    { id: 'stone1', name: 'Stone 1', url: '/images/stone.1.png', exampleWidthMeters: 3.0, exampleHeightMeters: 3.0 },
+    { id: 'stone2', name: 'Stone 2', url: '/images/stone.2.png', exampleWidthMeters: 3.0, exampleHeightMeters: 3.0 },
+    { id: 'stone3', name: 'Stone 3', url: '/images/stone.3.png', exampleWidthMeters: 3.0, exampleHeightMeters: 3.0 },
   ];
 
   const handleSlabImageClick = (url: string) => {
@@ -77,6 +77,59 @@ export default function Home() {
     setSlabDialogState('crop');
     setCropSelection(null);
     setShapePosition(null);
+  };
+
+  // Simple function to update crop selection directly from position (used during drag)
+  const updateCropSelectionDirectly = (centerX: number, centerY: number) => {
+    if (!slabImageRef.current || !slabContainerRef.current || !selectedSlabImage) return;
+    
+    const imgRect = slabImageRef.current.getBoundingClientRect();
+    const imgDisplayWidth = imgRect.width;
+    const imgDisplayHeight = imgRect.height;
+    
+    // Find the selected slab image to get its size properties
+    const selectedSlab = slabImages.find(slab => slab.url === selectedSlabImage);
+    if (!selectedSlab) return;
+    
+    // Use the slab image's example size to calculate pixels-to-meters conversion
+    const pixelsToMetersX = selectedSlab.exampleWidthMeters / imgDisplayWidth;
+    const pixelsToMetersY = selectedSlab.exampleHeightMeters / imgDisplayHeight;
+    
+    // Convert meters to pixels (in image display space)
+    const widthInPixels = shapeWidth / pixelsToMetersX;
+    const heightInPixels = shapeHeight / pixelsToMetersY;
+    
+    // Calculate selection bounds based on shape - use exact center without recalculation
+    let startX: number, startY: number, endX: number, endY: number;
+    
+    if (selectedShape === 'circle') {
+      const radius = Math.max(widthInPixels, heightInPixels) / 2;
+      startX = centerX - radius;
+      startY = centerY - radius;
+      endX = centerX + radius;
+      endY = centerY + radius;
+    } else if (selectedShape === 'triangle') {
+      const triangleHeight = heightInPixels;
+      const triangleWidth = widthInPixels;
+      startX = centerX - triangleWidth / 2;
+      startY = centerY - triangleHeight / 2;
+      endX = centerX + triangleWidth / 2;
+      endY = centerY + triangleHeight / 2;
+    } else {
+      // Rectangle or cube
+      startX = centerX - widthInPixels / 2;
+      startY = centerY - heightInPixels / 2;
+      endX = centerX + widthInPixels / 2;
+      endY = centerY + heightInPixels / 2;
+    }
+    
+    // Only clamp bounds to image edges, don't recalculate center
+    startX = Math.max(0, Math.min(startX, imgDisplayWidth));
+    startY = Math.max(0, Math.min(startY, imgDisplayHeight));
+    endX = Math.max(0, Math.min(endX, imgDisplayWidth));
+    endY = Math.max(0, Math.min(endY, imgDisplayHeight));
+    
+    setCropSelection({ startX, startY, endX, endY });
   };
 
   // Function to update crop selection based on shape and size
@@ -726,7 +779,7 @@ export default function Home() {
                         </div>
                         <span className="text-xs mt-1 block text-center">Triangle</span>
                       </button>
-                      <button
+                      {/* <button
                         onClick={() => {
                           setSelectedShape('cube');
                           if (shapePosition) {
@@ -746,7 +799,7 @@ export default function Home() {
                           </div>
                         </div>
                         <span className="text-xs mt-1 block text-center">Cube</span>
-                      </button>
+                      </button> */}
                     </div>
                   </div>
                   
@@ -883,8 +936,8 @@ export default function Home() {
                         const constrainedY = Math.max(halfHeight, Math.min(newImgY, imgDisplayHeight - halfHeight));
                         
                         setShapePosition({ x: constrainedX, y: constrainedY });
-                        // Update crop selection immediately during drag
-                        updateCropSelectionFromShape(constrainedX, constrainedY, false);
+                        // Update crop selection directly during drag (no recalculation)
+                        updateCropSelectionDirectly(constrainedX, constrainedY);
                       } else if (isResizingSelection && resizeHandle && resizeStart) {
                         // Handle resizing
                         const imgX = x - imgLeft;
@@ -936,7 +989,7 @@ export default function Home() {
                             setShapeWidth(newWidthMeters);
                             setShapeHeight(newHeightMeters);
                             setShapePosition({ x: newCenterX, y: newCenterY });
-                            updateCropSelectionFromShape(newCenterX, newCenterY, false);
+                            updateCropSelectionDirectly(newCenterX, newCenterY);
                           }
                         }
                       }
@@ -953,9 +1006,9 @@ export default function Home() {
                       setResizeStart(null);
                       
                       // Only update crop selection if we were dragging/resizing and have a position
-                      // Don't recalculate position to avoid jumps
+                      // Use direct update to avoid jumps
                       if ((wasDragging || wasResizing) && shapePosition) {
-                        updateCropSelectionFromShape(shapePosition.x, shapePosition.y, false);
+                        updateCropSelectionDirectly(shapePosition.x, shapePosition.y);
                       }
                     }}
                     onMouseLeave={() => {
@@ -970,9 +1023,9 @@ export default function Home() {
                       setResizeStart(null);
                       
                       // Only update crop selection if we were dragging/resizing and have a position
-                      // Don't recalculate position to avoid jumps
+                      // Use direct update to avoid jumps
                       if ((wasDragging || wasResizing) && shapePosition) {
-                        updateCropSelectionFromShape(shapePosition.x, shapePosition.y, false);
+                        updateCropSelectionDirectly(shapePosition.x, shapePosition.y);
                       }
                     }}
                   style={{ maxHeight: '60vh' }}
@@ -980,8 +1033,9 @@ export default function Home() {
                   <img
                     ref={slabImageRef}
                     src={selectedSlabImage || ''}
+                    style={{objectFit: 'cover'}}
                     alt="Stone slab"
-                    className="w-full h-auto max-h-[60vh] object-contain pointer-events-none select-none"
+                    className="w-full h-auto max-h-[60vh] aspect-ratio-1/1 object-contain pointer-events-none select-none"
                     draggable={false}
                     onDragStart={(e) => e.preventDefault()}
                     onError={(e) => {
