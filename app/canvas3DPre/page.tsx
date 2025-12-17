@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, Suspense, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { useEffect, useRef, Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 function Canvas3DPreContent() {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -18,8 +18,8 @@ function Canvas3DPreContent() {
     if (!mountRef.current) return;
 
     // Get canvas dimensions from URL params
-    const width = parseFloat(searchParams.get('width') || '2');
-    const height = parseFloat(searchParams.get('height') || '2');
+    const width = parseFloat(searchParams.get("width") || "2");
+    const height = parseFloat(searchParams.get("height") || "2");
     const tableHeight = 0.2; // Table height in meters
 
     // Get stone images data from localStorage
@@ -27,7 +27,7 @@ function Canvas3DPreContent() {
     let canvasWidth = 800;
     let canvasHeight = 600;
     try {
-      const storedData = localStorage.getItem('stonia3DData');
+      const storedData = localStorage.getItem("stonia3DData");
       if (storedData) {
         const data = JSON.parse(storedData);
         stoneImages = data.stoneImages || [];
@@ -37,7 +37,7 @@ function Canvas3DPreContent() {
         setStoneCount(stoneImages.length);
       }
     } catch (e) {
-      console.error('Failed to load stone images data:', e);
+      console.error("Failed to load stone images data:", e);
     }
 
     // Calculate pixels-to-meters conversion
@@ -57,10 +57,10 @@ function Canvas3DPreContent() {
     // Camera setup - top-down view to match canvas
     // Table extends from (0, 0, 0) to (width, 0, height)
     const camera = new THREE.OrthographicCamera(
-      0,      // left (start of table)
-      width,  // right (end of table)
+      0, // left (start of table)
+      width, // right (end of table)
       height, // top (start of table in Z)
-      0,      // bottom (end of table in Z)
+      0, // bottom (end of table in Z)
       0.1,
       1000
     );
@@ -108,11 +108,15 @@ function Canvas3DPreContent() {
     const tableGroup = new THREE.Group();
 
     // Table top (flat surface)
-    const tableTopGeometry = new THREE.BoxGeometry(width, tableHeight * 0.1, height);
-    const tableTopMaterial = new THREE.MeshStandardMaterial({ 
+    const tableTopGeometry = new THREE.BoxGeometry(
+      width,
+      tableHeight * 0.1,
+      height
+    );
+    const tableTopMaterial = new THREE.MeshStandardMaterial({
       color: 0x8b4513, // Brown color for wood
       roughness: 0.7,
-      metalness: 0.1
+      metalness: 0.1,
     });
     const tableTop = new THREE.Mesh(tableTopGeometry, tableTopMaterial);
     tableTop.position.set(width / 2, tableHeight, height / 2);
@@ -123,11 +127,16 @@ function Canvas3DPreContent() {
     // Table legs (4 legs at corners)
     const legRadius = 0.05;
     const legHeight = tableHeight;
-    const legGeometry = new THREE.CylinderGeometry(legRadius, legRadius, legHeight, 16);
-    const legMaterial = new THREE.MeshStandardMaterial({ 
+    const legGeometry = new THREE.CylinderGeometry(
+      legRadius,
+      legRadius,
+      legHeight,
+      16
+    );
+    const legMaterial = new THREE.MeshStandardMaterial({
       color: 0x654321, // Darker brown for legs
       roughness: 0.8,
-      metalness: 0.1
+      metalness: 0.1,
     });
 
     const legPositions = [
@@ -150,20 +159,20 @@ function Canvas3DPreContent() {
     // Add stone images as textures on the table
     const stoneGroup = new THREE.Group();
     const textureLoader = new THREE.TextureLoader();
-    
+
     // Table top surface is at tableHeight + (tableHeight * 0.1) / 2
     const tableTopSurfaceY = tableHeight + (tableHeight * 0.1) / 2;
-    
+
     stoneImages.forEach((stone, index) => {
       // Calculate distance to left and distance to top in meters (same as canvas)
       // stone.x and stone.y are the center positions in pixels
-      const distanceLeft = stone.x * pixelsToMetersX;  // Distance from left edge in meters
-      const distanceTop = stone.y * pixelsToMetersY;   // Distance from top edge in meters
-      
+      const distanceLeft = stone.x * pixelsToMetersX; // Distance from left edge in meters
+      const distanceTop = stone.y * pixelsToMetersY; // Distance from top edge in meters
+
       // Calculate size in meters
       const widthMeters = stone.width * pixelsToMetersX;
       const heightMeters = stone.height * pixelsToMetersY;
-      
+
       // Create texture from image data (async, but we'll handle it)
       const texture = textureLoader.load(
         stone.imageData,
@@ -177,10 +186,10 @@ function Canvas3DPreContent() {
         undefined,
         // onError
         (error) => {
-          console.error('Error loading texture for stone:', stone.id, error);
+          console.error("Error loading texture for stone:", stone.id, error);
         }
       );
-      
+
       // Create plane geometry for the stone
       const planeGeometry = new THREE.PlaneGeometry(widthMeters, heightMeters);
       const planeMaterial = new THREE.MeshStandardMaterial({
@@ -189,33 +198,34 @@ function Canvas3DPreContent() {
         roughness: 0.7,
         metalness: 0.1,
       });
-      
+
       const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-      
-      // Rotate plane to be horizontal (XZ plane) - rotate 90 degrees around X axis
-      plane.rotation.x = -Math.PI / 2;
-      
+
+      // Apply rotation:
+      // 1. Lay the plane flat on XZ plane (rotate -90° around X)
+      // 2. Apply the 2D canvas rotation around the local Z axis (which is now pointing up)
+      // Canvas rotation: positive is clockwise when viewed from above
+      // After X rotation, local Z points up, so Z rotation = world Y rotation
+      const rotationDegrees = stone.rotation || 0;
+      const rotationRadians = (rotationDegrees * Math.PI) / 180;
+
+      // Set rotation: X to lay flat, Z for the 2D rotation (in local space after X rotation)
+      plane.rotation.set(-Math.PI / 2, 0, -rotationRadians);
+
       // Position the plane on the table surface using distanceLeft and distanceTop
       // Table extends from (0, 0, 0) to (width, 0, height)
       // distanceLeft = meters from left edge (maps to X)
       // distanceTop = meters from top edge (maps to Z when viewed from top)
       plane.position.set(
-        distanceLeft,                // X position = distance from left in meters
-        tableTopSurfaceY + 0.002,    // Slightly above table surface
-        distanceTop                  // Z position = distance from top in meters
+        distanceLeft, // X position = distance from left in meters
+        tableTopSurfaceY + 0.002, // Slightly above table surface
+        distanceTop // Z position = distance from top in meters
       );
-      
-      // Apply rotation around Y axis (vertical)
-      // Canvas rotation: positive is clockwise when viewed from top
-      // Three.js rotation.y: positive is counter-clockwise when looking down
-      // So we negate it
-      const rotationDegrees = stone.rotation || 0;
-      plane.rotation.y = -(rotationDegrees * Math.PI / 180);
-      
+
       plane.castShadow = false;
       plane.receiveShadow = true;
       stoneGroup.add(plane);
-      
+
       console.log(`Stone ${index + 1} positioned at:`, {
         distanceLeft: distanceLeft.toFixed(3),
         distanceTop: distanceTop.toFixed(3),
@@ -225,18 +235,23 @@ function Canvas3DPreContent() {
         position: {
           x: distanceLeft,
           y: tableTopSurfaceY + 0.002,
-          z: distanceTop
-        }
+          z: distanceTop,
+        },
       });
     });
-    
+
     scene.add(stoneGroup);
-    
+
     // Log stone count for debugging
     console.log(`Added ${stoneImages.length} stone images to 3D scene`);
 
     // Grid helper for reference
-    const gridHelper = new THREE.GridHelper(Math.max(width, height) * 2, 20, 0x888888, 0xcccccc);
+    const gridHelper = new THREE.GridHelper(
+      Math.max(width, height) * 2,
+      20,
+      0x888888,
+      0xcccccc
+    );
     gridHelper.position.y = 0;
     scene.add(gridHelper);
 
@@ -256,13 +271,13 @@ function Canvas3DPreContent() {
     const handleResize = () => {
       if (!camera || !renderer) return;
       const aspect = window.innerWidth / window.innerHeight;
-      
+
       // Update orthographic camera bounds to maintain aspect ratio
       if (camera instanceof THREE.OrthographicCamera) {
         const viewHeight = height;
         const viewWidth = width;
         const aspectRatio = viewWidth / viewHeight;
-        
+
         if (aspect > aspectRatio) {
           // Window is wider than canvas
           const newWidth = viewHeight * aspect;
@@ -282,11 +297,11 @@ function Canvas3DPreContent() {
       }
       renderer.setSize(window.innerWidth, window.innerHeight);
     };
-    window.addEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
 
     // Cleanup
     return () => {
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener("resize", handleResize);
       if (rendererRef.current) {
         rendererRef.current.dispose();
       }
@@ -302,14 +317,11 @@ function Canvas3DPreContent() {
       <div className="absolute top-4 left-4 bg-white bg-opacity-90 p-4 rounded-lg shadow-lg">
         <h1 className="text-xl font-bold mb-2">3D Canvas Preview</h1>
         <p className="text-sm text-gray-600">
-          Table Size: {searchParams.get('width') || '2'}m × {searchParams.get('height') || '2'}m
+          Table Size: {searchParams.get("width") || "2"}m ×{" "}
+          {searchParams.get("height") || "2"}m
         </p>
-        <p className="text-sm text-gray-600">
-          Table Height: 0.2m
-        </p>
-        <p className="text-sm text-gray-600">
-          Stone Images: {stoneCount}
-        </p>
+        <p className="text-sm text-gray-600">Table Height: 0.2m</p>
+        <p className="text-sm text-gray-600">Stone Images: {stoneCount}</p>
       </div>
     </div>
   );
@@ -317,9 +329,14 @@ function Canvas3DPreContent() {
 
 export default function Canvas3DPrePage() {
   return (
-    <Suspense fallback={<div className="w-full h-screen bg-gray-100 flex items-center justify-center">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="w-full h-screen bg-gray-100 flex items-center justify-center">
+          Loading...
+        </div>
+      }
+    >
       <Canvas3DPreContent />
     </Suspense>
   );
 }
-

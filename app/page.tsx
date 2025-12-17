@@ -1,10 +1,11 @@
-'use client';
+"use client";
 
-import { useRef, useState, useEffect } from 'react';
-import DrawingCanvas from '@/components/DrawingCanvas';
+import { useRef, useState, useEffect } from "react";
+import DrawingCanvas from "@/components/DrawingCanvas";
 
 interface StoneImage {
   id: string;
+  stoneName: string;
   imageData: string;
   x: number;
   y: number;
@@ -17,30 +18,57 @@ interface StoneImage {
 
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [selectedStoneImage, setSelectedStoneImage] = useState<string | null>(null);
+  const [selectedStoneImage, setSelectedStoneImage] = useState<string | null>(
+    null
+  );
   const [showSlabDialog, setShowSlabDialog] = useState(false);
-  const [slabDialogState, setSlabDialogState] = useState<'select' | 'crop'>('select');
-  const [selectedSlabImage, setSelectedSlabImage] = useState<string | null>(null);
-  const [cropSelection, setCropSelection] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const [slabDialogState, setSlabDialogState] = useState<"select" | "crop">(
+    "select"
+  );
+  const [selectedSlabImage, setSelectedSlabImage] = useState<string | null>(
+    null
+  );
+  const [cropSelection, setCropSelection] = useState<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const [isResizingSelection, setIsResizingSelection] = useState(false);
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
+  const justFinishedDraggingRef = useRef(false);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(
+    null
+  );
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
-  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number; centerX: number; centerY: number } | null>(null);
+  const [resizeStart, setResizeStart] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    centerX: number;
+    centerY: number;
+  } | null>(null);
   const slabImageRef = useRef<HTMLImageElement | null>(null);
   const slabContainerRef = useRef<HTMLDivElement | null>(null);
+  const selectionOverlayRef = useRef<HTMLElement | SVGSVGElement | null>(null);
 
   // Shape selection state
-  const [selectedShape, setSelectedShape] = useState<'rectangle' | 'circle' | 'triangle' | 'cube'>('rectangle');
+  const [selectedShape, setSelectedShape] = useState<
+    "rectangle" | "circle" | "triangle" | "cube"
+  >("rectangle");
   const [shapeWidth, setShapeWidth] = useState<number>(1.0); // in meters
   const [shapeHeight, setShapeHeight] = useState<number>(1.0); // in meters
-  const [shapePosition, setShapePosition] = useState<{ x: number; y: number } | null>(null);
-  
+  const [shapePosition, setShapePosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+
   // Canvas size state (in meters)
   const [canvasSizeX, setCanvasSizeX] = useState<number>(2);
   const [canvasSizeY, setCanvasSizeY] = useState<number>(2);
-  
+
   // Stone images on canvas
   const [stoneImages, setStoneImages] = useState<StoneImage[]>([]);
   const [selectedStoneId, setSelectedStoneId] = useState<string | null>(null);
@@ -48,67 +76,99 @@ export default function Home() {
   const [viewingStone, setViewingStone] = useState<StoneImage | null>(null);
   const viewStoneImageRef = useRef<HTMLImageElement | null>(null);
   const viewStoneContainerRef = useRef<HTMLDivElement | null>(null);
-  const [cropOverlayStyle, setCropOverlayStyle] = useState<{ left: string; top: string; width: string; height: string } | null>(null);
+  const viewOverlayRef = useRef<HTMLDivElement | null>(null);
+  const [cropOverlayStyle, setCropOverlayStyle] = useState<{
+    left: string;
+    top: string;
+    width: string;
+    height: string;
+  } | null>(null);
   const [isDraggingViewOverlay, setIsDraggingViewOverlay] = useState(false);
-  const [viewDragOffset, setViewDragOffset] = useState<{ x: number; y: number } | null>(null);
-  const [viewSelectionModified, setViewSelectionModified] = useState(false);
-  
+  const [viewDragOffset, setViewDragOffset] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+
   // Canvas state
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
   const stageRef = useRef<any>(null);
 
   const handleDeleteStone = (id: string) => {
-    setStoneImages(stoneImages.filter(stone => stone.id !== id));
+    setStoneImages(stoneImages.filter((stone) => stone.id !== id));
     if (selectedStoneId === id) {
       setSelectedStoneId(null);
     }
   };
 
-
   // Stone slab images with example size properties (in meters)
   const slabImages = [
-    { id: 'stone1', name: 'Stone 1', url: '/images/stone.1.png', exampleWidthMeters: 3.0, exampleHeightMeters: 3.0 },
-    { id: 'stone2', name: 'Stone 2', url: '/images/stone.2.png', exampleWidthMeters: 3.0, exampleHeightMeters: 3.0 },
-    { id: 'stone3', name: 'Stone 3', url: '/images/stone.3.png', exampleWidthMeters: 3.0, exampleHeightMeters: 3.0 },
+    {
+      id: "stone1",
+      name: "Stone 1",
+      url: "/images/stone.1.png",
+      exampleWidthMeters: 3.0,
+      exampleHeightMeters: 3.0,
+    },
+    {
+      id: "stone2",
+      name: "Stone 2",
+      url: "/images/stone.2.png",
+      exampleWidthMeters: 3.0,
+      exampleHeightMeters: 3.0,
+    },
+    {
+      id: "stone3",
+      name: "Stone 3",
+      url: "/images/stone.3.png",
+      exampleWidthMeters: 3.0,
+      exampleHeightMeters: 3.0,
+    },
   ];
 
   const handleSlabImageClick = (url: string) => {
     setSelectedSlabImage(url);
-    setSlabDialogState('crop');
+    setSlabDialogState("crop");
     setCropSelection(null);
     setShapePosition(null);
   };
 
   // Simple function to update crop selection directly from position (used during drag)
   const updateCropSelectionDirectly = (centerX: number, centerY: number) => {
-    if (!slabImageRef.current || !slabContainerRef.current || !selectedSlabImage) return;
-    
+    if (
+      !slabImageRef.current ||
+      !slabContainerRef.current ||
+      !selectedSlabImage
+    )
+      return;
+
     const imgRect = slabImageRef.current.getBoundingClientRect();
     const imgDisplayWidth = imgRect.width;
     const imgDisplayHeight = imgRect.height;
-    
+
     // Find the selected slab image to get its size properties
-    const selectedSlab = slabImages.find(slab => slab.url === selectedSlabImage);
+    const selectedSlab = slabImages.find(
+      (slab) => slab.url === selectedSlabImage
+    );
     if (!selectedSlab) return;
-    
+
     // Use the slab image's example size to calculate pixels-to-meters conversion
     const pixelsToMetersX = selectedSlab.exampleWidthMeters / imgDisplayWidth;
     const pixelsToMetersY = selectedSlab.exampleHeightMeters / imgDisplayHeight;
-    
+
     // Convert meters to pixels (in image display space)
     const widthInPixels = shapeWidth / pixelsToMetersX;
     const heightInPixels = shapeHeight / pixelsToMetersY;
-    
+
     // Calculate selection bounds based on shape - use exact center without recalculation
     let startX: number, startY: number, endX: number, endY: number;
-    
-    if (selectedShape === 'circle') {
+
+    if (selectedShape === "circle") {
       const radius = Math.max(widthInPixels, heightInPixels) / 2;
       startX = centerX - radius;
       startY = centerY - radius;
       endX = centerX + radius;
       endY = centerY + radius;
-    } else if (selectedShape === 'triangle') {
+    } else if (selectedShape === "triangle") {
       const triangleHeight = heightInPixels;
       const triangleWidth = widthInPixels;
       startX = centerX - triangleWidth / 2;
@@ -122,42 +182,53 @@ export default function Home() {
       endX = centerX + widthInPixels / 2;
       endY = centerY + heightInPixels / 2;
     }
-    
+
     // Only clamp bounds to image edges, don't recalculate center
     startX = Math.max(0, Math.min(startX, imgDisplayWidth));
     startY = Math.max(0, Math.min(startY, imgDisplayHeight));
     endX = Math.max(0, Math.min(endX, imgDisplayWidth));
     endY = Math.max(0, Math.min(endY, imgDisplayHeight));
-    
+
     setCropSelection({ startX, startY, endX, endY });
   };
 
   // Function to update crop selection based on shape and size
-  const updateCropSelectionFromShape = (centerX: number, centerY: number, updatePosition: boolean = true) => {
-    if (!slabImageRef.current || !slabContainerRef.current || !selectedSlabImage) return;
-    
+  const updateCropSelectionFromShape = (
+    centerX: number,
+    centerY: number,
+    updatePosition: boolean = true
+  ) => {
+    if (
+      !slabImageRef.current ||
+      !slabContainerRef.current ||
+      !selectedSlabImage
+    )
+      return;
+
     const imgRect = slabImageRef.current.getBoundingClientRect();
     const imgDisplayWidth = imgRect.width;
     const imgDisplayHeight = imgRect.height;
-    
+
     // Find the selected slab image to get its size properties
-    const selectedSlab = slabImages.find(slab => slab.url === selectedSlabImage);
+    const selectedSlab = slabImages.find(
+      (slab) => slab.url === selectedSlabImage
+    );
     if (!selectedSlab) return;
-    
+
     // Use the slab image's example size to calculate pixels-to-meters conversion
     // The image display size represents the slab's example size in meters
     const pixelsToMetersX = selectedSlab.exampleWidthMeters / imgDisplayWidth;
     const pixelsToMetersY = selectedSlab.exampleHeightMeters / imgDisplayHeight;
-    
+
     // Convert meters to pixels (in image display space)
     const widthInPixels = shapeWidth / pixelsToMetersX;
     const heightInPixels = shapeHeight / pixelsToMetersY;
-    
+
     // Calculate selection bounds based on shape
     let startX: number, startY: number, endX: number, endY: number;
     let halfWidth: number, halfHeight: number;
-    
-    if (selectedShape === 'circle') {
+
+    if (selectedShape === "circle") {
       // For circle, use the larger dimension
       const radius = Math.max(widthInPixels, heightInPixels) / 2;
       halfWidth = radius;
@@ -166,7 +237,7 @@ export default function Home() {
       startY = centerY - radius;
       endX = centerX + radius;
       endY = centerY + radius;
-    } else if (selectedShape === 'triangle') {
+    } else if (selectedShape === "triangle") {
       // For triangle, use height as the triangle height
       const triangleHeight = heightInPixels;
       const triangleWidth = widthInPixels;
@@ -176,7 +247,7 @@ export default function Home() {
       startY = centerY - halfHeight;
       endX = centerX + halfWidth;
       endY = centerY + halfHeight;
-    } else if (selectedShape === 'cube') {
+    } else if (selectedShape === "cube") {
       // For cube, use width and height
       halfWidth = widthInPixels / 2;
       halfHeight = heightInPixels / 2;
@@ -193,16 +264,22 @@ export default function Home() {
       endX = centerX + halfWidth;
       endY = centerY + halfHeight;
     }
-    
+
     // Only constrain center position if we're updating the position (not when just syncing from existing position)
     let finalCenterX = centerX;
     let finalCenterY = centerY;
-    
+
     if (updatePosition) {
       // Constrain center position to keep selection within bounds
-      finalCenterX = Math.max(halfWidth, Math.min(centerX, imgDisplayWidth - halfWidth));
-      finalCenterY = Math.max(halfHeight, Math.min(centerY, imgDisplayHeight - halfHeight));
-      
+      finalCenterX = Math.max(
+        halfWidth,
+        Math.min(centerX, imgDisplayWidth - halfWidth)
+      );
+      finalCenterY = Math.max(
+        halfHeight,
+        Math.min(centerY, imgDisplayHeight - halfHeight)
+      );
+
       // Update shape position if it changed
       if (finalCenterX !== centerX || finalCenterY !== centerY) {
         setShapePosition({ x: finalCenterX, y: finalCenterY });
@@ -213,15 +290,15 @@ export default function Home() {
       finalCenterX = centerX;
       finalCenterY = centerY;
     }
-    
+
     // Recalculate bounds with final center
-    if (selectedShape === 'circle') {
+    if (selectedShape === "circle") {
       const radius = Math.max(widthInPixels, heightInPixels) / 2;
       startX = finalCenterX - radius;
       startY = finalCenterY - radius;
       endX = finalCenterX + radius;
       endY = finalCenterY + radius;
-    } else if (selectedShape === 'triangle') {
+    } else if (selectedShape === "triangle") {
       const triangleHeight = heightInPixels;
       const triangleWidth = widthInPixels;
       startX = finalCenterX - triangleWidth / 2;
@@ -234,19 +311,24 @@ export default function Home() {
       endX = finalCenterX + widthInPixels / 2;
       endY = finalCenterY + heightInPixels / 2;
     }
-    
+
     // Final clamp to ensure bounds are within image
     startX = Math.max(0, Math.min(startX, imgDisplayWidth));
     startY = Math.max(0, Math.min(startY, imgDisplayHeight));
     endX = Math.max(0, Math.min(endX, imgDisplayWidth));
     endY = Math.max(0, Math.min(endY, imgDisplayHeight));
-    
+
     setCropSelection({ startX, startY, endX, endY });
   };
 
   // Update selection size immediately when width/height changes
   useEffect(() => {
-    if (shapePosition && slabImageRef.current && slabContainerRef.current && !isDraggingSelection) {
+    if (
+      shapePosition &&
+      slabImageRef.current &&
+      slabContainerRef.current &&
+      !isDraggingSelection
+    ) {
       updateCropSelectionFromShape(shapePosition.x, shapePosition.y, false);
     }
   }, [shapeWidth, shapeHeight, selectedShape]);
@@ -255,17 +337,17 @@ export default function Home() {
     if (!slabImageRef.current) return;
     const containerRect = e.currentTarget.getBoundingClientRect();
     const imgRect = slabImageRef.current.getBoundingClientRect();
-    
+
     // Calculate relative position within the container
     const x = e.clientX - containerRect.left;
     const y = e.clientY - containerRect.top;
-    
+
     // Check if click is within image bounds (accounting for object-contain positioning)
     const imgLeft = imgRect.left - containerRect.left;
     const imgTop = imgRect.top - containerRect.top;
     const imgRight = imgLeft + imgRect.width;
     const imgBottom = imgTop + imgRect.height;
-    
+
     if (x >= imgLeft && x <= imgRight && y >= imgTop && y <= imgBottom) {
       // Convert to image-relative coordinates
       const imgX = x - imgLeft;
@@ -279,17 +361,17 @@ export default function Home() {
     if (!isSelecting || !cropSelection || !slabImageRef.current) return;
     const containerRect = e.currentTarget.getBoundingClientRect();
     const imgRect = slabImageRef.current.getBoundingClientRect();
-    
+
     // Calculate relative position within the container
     const x = e.clientX - containerRect.left;
     const y = e.clientY - containerRect.top;
-    
+
     // Convert to image-relative coordinates
     const imgLeft = imgRect.left - containerRect.left;
     const imgTop = imgRect.top - containerRect.top;
     const imgX = Math.max(0, Math.min(x - imgLeft, imgRect.width));
     const imgY = Math.max(0, Math.min(y - imgTop, imgRect.height));
-    
+
     setCropSelection({ ...cropSelection, endX: imgX, endY: imgY });
   };
 
@@ -321,29 +403,35 @@ export default function Home() {
     const cropHeight = endY - startY;
 
     // Create a canvas to crop the image
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = cropWidth;
     canvas.height = cropHeight;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     // Draw the cropped portion
     ctx.drawImage(
       img,
-      startX, startY, cropWidth, cropHeight,
-      0, 0, cropWidth, cropHeight
+      startX,
+      startY,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      cropWidth,
+      cropHeight
     );
 
     // Convert to data URL and add to canvas as a draggable stone image
-    const croppedDataURL = canvas.toDataURL('image/png');
+    const croppedDataURL = canvas.toDataURL("image/png");
     setSelectedStoneImage(croppedDataURL);
-    
+
     // Calculate canvas dimensions (same logic as elsewhere)
     const aspectRatio = canvasSizeX / canvasSizeY;
     const maxCanvasSize = 1200;
     let canvasWidth = 800;
     let canvasHeight = 600;
-    
+
     if (aspectRatio >= 1) {
       canvasWidth = Math.min(maxCanvasSize, 800);
       canvasHeight = canvasWidth / aspectRatio;
@@ -351,7 +439,7 @@ export default function Home() {
       canvasHeight = Math.min(maxCanvasSize, 600);
       canvasWidth = canvasHeight * aspectRatio;
     }
-    
+
     if (canvasWidth < 400) {
       canvasWidth = 400;
       canvasHeight = canvasWidth / aspectRatio;
@@ -360,16 +448,16 @@ export default function Home() {
       canvasHeight = 300;
       canvasWidth = canvasHeight * aspectRatio;
     }
-    
+
     // Calculate pixels-to-meters conversion
     const pixelsToMetersX = canvasSizeX / canvasWidth;
     const pixelsToMetersY = canvasSizeY / canvasHeight;
-    
+
     // Convert the selected size in meters to pixels on the canvas
     // Use shapeWidth and shapeHeight which are the actual selected dimensions in meters
     const displayWidth = shapeWidth / pixelsToMetersX;
     const displayHeight = shapeHeight / pixelsToMetersY;
-    
+
     // Store crop selection in natural image coordinates (scale-independent) for later display
     const naturalCropSelection = {
       startX: Math.min(cropSelection.startX, cropSelection.endX) * scaleX,
@@ -377,10 +465,17 @@ export default function Home() {
       endX: Math.max(cropSelection.startX, cropSelection.endX) * scaleX,
       endY: Math.max(cropSelection.startY, cropSelection.endY) * scaleY,
     };
-    
+
+    // Find the slab name for this stone
+    const selectedSlab = slabImages.find(
+      (slab) => slab.url === selectedSlabImage
+    );
+    const stoneName = selectedSlab?.name || "Stone";
+
     // Add to canvas stone images array (positioned at center initially)
     const newStoneImage: StoneImage = {
       id: `stone-${Date.now()}`,
+      stoneName: stoneName,
       imageData: croppedDataURL,
       x: canvasWidth / 2 - displayWidth / 2, // Center position
       y: canvasHeight / 2 - displayHeight / 2, // Center position
@@ -394,89 +489,13 @@ export default function Home() {
 
     // Close dialog and reset state
     setShowSlabDialog(false);
-    setSlabDialogState('select');
+    setSlabDialogState("select");
     setSelectedSlabImage(null);
     setCropSelection(null);
   };
 
-  const handleConfirmViewSelectionChange = () => {
-    if (!viewingStone || !viewStoneImageRef.current || !viewStoneContainerRef.current || !cropOverlayStyle) return;
-
-    const img = viewStoneImageRef.current;
-    const containerRect = viewStoneContainerRef.current.getBoundingClientRect();
-    const imgRect = img.getBoundingClientRect();
-    const imgNaturalWidth = img.naturalWidth;
-    const imgNaturalHeight = img.naturalHeight;
-    const imgDisplayWidth = imgRect.width;
-    const imgDisplayHeight = imgRect.height;
-
-    // Calculate scale factors
-    const scaleX = imgNaturalWidth / imgDisplayWidth;
-    const scaleY = imgNaturalHeight / imgDisplayHeight;
-
-    // Get overlay position relative to image
-    const imgLeft = imgRect.left - containerRect.left;
-    const imgTop = imgRect.top - containerRect.top;
-    const overlayLeft = parseFloat(cropOverlayStyle.left) - imgLeft;
-    const overlayTop = parseFloat(cropOverlayStyle.top) - imgTop;
-    
-    // Preserve the original crop size (don't change it)
-    const originalCropWidth = viewingStone.cropSelection.endX - viewingStone.cropSelection.startX;
-    const originalCropHeight = viewingStone.cropSelection.endY - viewingStone.cropSelection.startY;
-
-    // Calculate crop coordinates in natural image space (preserve size, only change position)
-    const startX = overlayLeft * scaleX;
-    const startY = overlayTop * scaleY;
-    const endX = startX + originalCropWidth;
-    const endY = startY + originalCropHeight;
-
-    const cropWidth = originalCropWidth;
-    const cropHeight = originalCropHeight;
-
-    // Create a canvas to crop the image
-    const canvas = document.createElement('canvas');
-    canvas.width = cropWidth;
-    canvas.height = cropHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Draw the cropped portion
-    ctx.drawImage(
-      img,
-      startX, startY, cropWidth, cropHeight,
-      0, 0, cropWidth, cropHeight
-    );
-
-    // Convert to data URL
-    const croppedDataURL = canvas.toDataURL('image/png');
-
-    // Update the stone image - preserve size, only update position and imageData
-    const updatedStone: StoneImage = {
-      ...viewingStone,
-      imageData: croppedDataURL,
-      // Keep original width and height (don't change size)
-      cropSelection: {
-        startX: startX,
-        startY: startY,
-        endX: endX,
-        endY: endY,
-      },
-    };
-
-    // Update stoneImages array
-    setStoneImages(stoneImages.map(s => 
-      s.id === viewingStone.id ? updatedStone : s
-    ));
-
-    // Update viewingStone
-    setViewingStone(updatedStone);
-
-    // Reset modified flag
-    setViewSelectionModified(false);
-  };
-
   const handleBackToSlabSelection = () => {
-    setSlabDialogState('select');
+    setSlabDialogState("select");
     setSelectedSlabImage(null);
     setCropSelection(null);
     setShapePosition(null);
@@ -491,60 +510,96 @@ export default function Home() {
           className="fixed left-4 top-4 z-20 bg-white rounded-lg shadow-lg p-3 text-gray-600 hover:text-gray-800 hover:bg-gray-50 transition-colors"
           title="Open Background Settings"
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 6h16M4 12h16M4 18h16"
+            />
           </svg>
         </button>
       )}
 
       {/* Sidebar */}
-      <aside className={`bg-white rounded-lg shadow-lg transition-all duration-300 flex-shrink-0 ${sidebarOpen ? 'w-64 p-4' : 'w-0 overflow-hidden p-0'}`}>
+      <aside
+        className={`bg-white rounded-lg shadow-lg transition-all duration-300 flex-shrink-0 ${
+          sidebarOpen ? "w-64 p-4" : "w-0 overflow-hidden p-0"
+        }`}
+      >
         {sidebarOpen && (
           <>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-800">Background</h2>
+              <h2 className="text-lg font-semibold text-gray-800">
+                Background
+              </h2>
               <button
                 onClick={() => setSidebarOpen(false)}
                 className="text-gray-500 hover:text-gray-700 p-1"
                 title="Close Sidebar"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
             <div className="space-y-4">
               {/* Canvas Size Controls */}
               <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Canvas Size (meters)</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                  Canvas Size (meters)
+                </h3>
                 <div className="space-y-2">
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">Width (X)</label>
+                    <label className="block text-xs text-gray-600 mb-1">
+                      Width (X)
+                    </label>
                     <input
                       type="number"
                       min="0.1"
                       max="100"
                       step="0.1"
                       value={canvasSizeX}
-                      onChange={(e) => setCanvasSizeX(parseFloat(e.target.value) || 0.1)}
+                      onChange={(e) =>
+                        setCanvasSizeX(parseFloat(e.target.value) || 0.1)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">Height (Y)</label>
+                    <label className="block text-xs text-gray-600 mb-1">
+                      Height (Y)
+                    </label>
                     <input
                       type="number"
                       min="0.1"
                       max="100"
                       step="0.1"
                       value={canvasSizeY}
-                      onChange={(e) => setCanvasSizeY(parseFloat(e.target.value) || 0.1)}
+                      onChange={(e) =>
+                        setCanvasSizeY(parseFloat(e.target.value) || 0.1)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
                 </div>
               </div>
-              
+
               <div className="border-t border-gray-200 pt-4">
                 <button
                   onClick={() => setShowSlabDialog(true)}
@@ -553,25 +608,27 @@ export default function Home() {
                   Select Slab
                 </button>
               </div>
-              
+
               {stoneImages.length > 0 && (
                 <>
-                <div>
-                  <button
+                  <div>
+                    <button
                       onClick={() => {
                         setStoneImages([]);
                         setSelectedStoneImage(null);
                         setSelectedStoneId(null);
                       }}
-                    className="w-full px-3 py-2 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
-                  >
+                      className="w-full px-3 py-2 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                    >
                       Clear All Stones
-                  </button>
-                </div>
-                  
+                    </button>
+                  </div>
+
                   {/* Preview cards for each stone image */}
                   <div className="border-t border-gray-200 pt-4">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Stone Images ({stoneImages.length})</h3>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                      Stone Images ({stoneImages.length})
+                    </h3>
                     <div className="space-y-2 max-h-[400px] overflow-y-auto">
                       {stoneImages.map((stone) => {
                         // Calculate canvas dimensions (same logic as in DrawingCanvas)
@@ -579,7 +636,7 @@ export default function Home() {
                         const aspectRatio = canvasSizeX / canvasSizeY;
                         let canvasWidth = 800;
                         let canvasHeight = 600;
-                        
+
                         if (aspectRatio >= 1) {
                           canvasWidth = Math.min(maxDisplaySize, 800);
                           canvasHeight = canvasWidth / aspectRatio;
@@ -587,7 +644,7 @@ export default function Home() {
                           canvasHeight = Math.min(maxDisplaySize, 600);
                           canvasWidth = canvasHeight * aspectRatio;
                         }
-                        
+
                         if (canvasWidth < 400) {
                           canvasWidth = 400;
                           canvasHeight = canvasWidth / aspectRatio;
@@ -596,27 +653,26 @@ export default function Home() {
                           canvasHeight = 300;
                           canvasWidth = canvasHeight * aspectRatio;
                         }
-                        
+
                         const pixelsToMetersX = canvasSizeX / canvasWidth;
                         const pixelsToMetersY = canvasSizeY / canvasHeight;
                         const distanceLeft = stone.x * pixelsToMetersX;
                         const distanceTop = stone.y * pixelsToMetersY;
                         const isSelected = selectedStoneId === stone.id;
-                        
+
                         return (
                           <div
                             key={stone.id}
                             className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${
-                              isSelected 
-                                ? 'border-indigo-500 bg-indigo-50' 
-                                : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                              isSelected
+                                ? "border-indigo-500 bg-indigo-50"
+                                : "border-gray-200 bg-gray-50 hover:border-gray-300"
                             }`}
                             onClick={() => {
                               setSelectedStoneId(stone.id);
                               setViewingStone(stone);
                               setShowStoneViewDialog(true);
                               setCropOverlayStyle(null);
-                              setViewSelectionModified(false);
                             }}
                           >
                             <div className="flex items-start gap-2">
@@ -627,12 +683,14 @@ export default function Home() {
                               />
                               <div className="flex-1 min-w-0">
                                 <div className="text-xs font-medium text-gray-700 mb-1">
-                                  Stone {stone.id.slice(-6)}
+                                  {stone.stoneName}
                                 </div>
                                 <div className="text-xs text-gray-600 space-y-0.5">
                                   <div>Left: {distanceLeft.toFixed(3)}m</div>
                                   <div>Top: {distanceTop.toFixed(3)}m</div>
-                                  <div>Rotation: {Math.round(stone.rotation)}°</div>
+                                  <div>
+                                    Rotation: {Math.round(stone.rotation)}°
+                                  </div>
                                 </div>
                                 <button
                                   onClick={(e) => {
@@ -642,8 +700,8 @@ export default function Home() {
                                   className="mt-2 text-xs text-red-600 hover:text-red-700 hover:underline"
                                 >
                                   Delete
-                  </button>
-                </div>
+                                </button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -659,7 +717,7 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col items-center justify-center p-4 min-w-0">
-          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-8xl relative">
+        <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-8xl relative">
           <DrawingCanvas
             backgroundImage={backgroundImage}
             stageRef={stageRef}
@@ -670,38 +728,55 @@ export default function Home() {
             selectedStoneId={selectedStoneId}
             setSelectedStoneId={setSelectedStoneId}
             onDeleteStone={handleDeleteStone}
-              />
-            </div>
+          />
+        </div>
       </main>
 
       {/* Slab Selection Dialog */}
       {showSlabDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            {slabDialogState === 'select' ? (
+            {slabDialogState === "select" ? (
               <>
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-2xl font-bold text-gray-800">Select Stone Slab</h2>
+                  <h2 className="text-2xl font-bold text-gray-800">
+                    Select Stone Slab
+                  </h2>
                   <button
                     onClick={() => {
                       setShowSlabDialog(false);
-                      setSlabDialogState('select');
+                      setSlabDialogState("select");
                       setSelectedSlabImage(null);
                     }}
                     className="text-gray-500 hover:text-gray-700 p-1"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <svg
+                      className="w-6 h-6"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
                     </svg>
                   </button>
                 </div>
-                <p className="text-gray-600 mb-4">Choose a stone slab to select a portion from:</p>
+                <p className="text-gray-600 mb-4">
+                  Choose a stone slab to select a portion from:
+                </p>
                 <div className="grid grid-cols-3 gap-4">
                   {slabImages.map((slab) => (
                     <button
                       key={slab.id}
                       onClick={() => handleSlabImageClick(slab.url)}
-                      className="relative aspect-video rounded-lg border-2 border-gray-300 hover:border-indigo-500 overflow-hidden transition-all group"
+                      className="relative rounded-lg border-2 border-gray-300 hover:border-indigo-500 overflow-hidden transition-all group"
+                      style={{
+                        aspectRatio: `${slab.exampleWidthMeters} / ${slab.exampleHeightMeters}`,
+                      }}
                     >
                       <img
                         src={slab.url}
@@ -710,7 +785,10 @@ export default function Home() {
                         onError={(e) => {
                           // If image doesn't exist, show placeholder
                           const target = e.target as HTMLImageElement;
-                          target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect width="200" height="200" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="14"%3E' + slab.name + '%3C/text%3E%3C/svg%3E';
+                          target.src =
+                            'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect width="200" height="200" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="14"%3E' +
+                            slab.name +
+                            "%3C/text%3E%3C/svg%3E";
                         }}
                       />
                       <div className="absolute inset-0 bg-indigo-500 bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center">
@@ -727,57 +805,74 @@ export default function Home() {
                 {/* Sidebar for shape and size selection */}
                 <div className="w-64 flex-shrink-0 space-y-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Shape Selection</h3>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-3">
+                      Shape Selection
+                    </h3>
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => {
-                          setSelectedShape('rectangle');
+                          setSelectedShape("rectangle");
                           if (shapePosition) {
-                            updateCropSelectionFromShape(shapePosition.x, shapePosition.y);
+                            updateCropSelectionFromShape(
+                              shapePosition.x,
+                              shapePosition.y
+                            );
                           }
                         }}
                         className={`p-3 border-2 rounded-lg transition-all ${
-                          selectedShape === 'rectangle'
-                            ? 'border-indigo-500 bg-indigo-50'
-                            : 'border-gray-300 hover:border-gray-400'
+                          selectedShape === "rectangle"
+                            ? "border-indigo-500 bg-indigo-50"
+                            : "border-gray-300 hover:border-gray-400"
                         }`}
                       >
                         <div className="w-full h-12 border-2 border-gray-600 rounded"></div>
-                        <span className="text-xs mt-1 block text-center">Rectangle</span>
+                        <span className="text-xs mt-1 block text-center">
+                          Rectangle
+                        </span>
                       </button>
                       <button
                         onClick={() => {
-                          setSelectedShape('circle');
+                          setSelectedShape("circle");
                           if (shapePosition) {
-                            updateCropSelectionFromShape(shapePosition.x, shapePosition.y);
+                            updateCropSelectionFromShape(
+                              shapePosition.x,
+                              shapePosition.y
+                            );
                           }
                         }}
                         className={`p-3 border-2 rounded-lg transition-all ${
-                          selectedShape === 'circle'
-                            ? 'border-indigo-500 bg-indigo-50'
-                            : 'border-gray-300 hover:border-gray-400'
+                          selectedShape === "circle"
+                            ? "border-indigo-500 bg-indigo-50"
+                            : "border-gray-300 hover:border-gray-400"
                         }`}
                       >
                         <div className="w-full h-12 border-2 border-gray-600 rounded-full"></div>
-                        <span className="text-xs mt-1 block text-center">Circle</span>
+                        <span className="text-xs mt-1 block text-center">
+                          Circle
+                        </span>
                       </button>
                       <button
                         onClick={() => {
-                          setSelectedShape('triangle');
+                          setSelectedShape("triangle");
                           if (shapePosition) {
-                            updateCropSelectionFromShape(shapePosition.x, shapePosition.y);
+                            updateCropSelectionFromShape(
+                              shapePosition.x,
+                              shapePosition.y
+                            );
                           }
                         }}
                         className={`p-3 border-2 rounded-lg transition-all ${
-                          selectedShape === 'triangle'
-                            ? 'border-indigo-500 bg-indigo-50'
-                            : 'border-gray-300 hover:border-gray-400'
+                          selectedShape === "triangle"
+                            ? "border-indigo-500 bg-indigo-50"
+                            : "border-gray-300 hover:border-gray-400"
                         }`}
                       >
                         <div className="w-full h-12 flex items-end justify-center">
                           <div className="w-0 h-0 border-l-[12px] border-r-[12px] border-b-[24px] border-l-transparent border-r-transparent border-b-gray-600"></div>
                         </div>
-                        <span className="text-xs mt-1 block text-center">Triangle</span>
+                        <span className="text-xs mt-1 block text-center">
+                          Triangle
+                        </span>
                       </button>
                       {/* <button
                         onClick={() => {
@@ -802,9 +897,11 @@ export default function Home() {
                       </button> */}
                     </div>
                   </div>
-                  
+
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Size (in meters)</h3>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-3">
+                      Size (in meters)
+                    </h3>
                     <div className="space-y-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -819,7 +916,10 @@ export default function Home() {
                             const val = parseFloat(e.target.value) || 0.1;
                             setShapeWidth(val);
                             if (shapePosition) {
-                              updateCropSelectionFromShape(shapePosition.x, shapePosition.y);
+                              updateCropSelectionFromShape(
+                                shapePosition.x,
+                                shapePosition.y
+                              );
                             }
                           }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -838,7 +938,10 @@ export default function Home() {
                             const val = parseFloat(e.target.value) || 0.1;
                             setShapeHeight(val);
                             if (shapePosition) {
-                              updateCropSelectionFromShape(shapePosition.x, shapePosition.y);
+                              updateCropSelectionFromShape(
+                                shapePosition.x,
+                                shapePosition.y
+                              );
                             }
                           }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -847,46 +950,73 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-                
+
                 {/* Main content area */}
                 <div className="flex-1">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-2xl font-bold text-gray-800">Select Part of Stone</h2>
-                  <button
-                    onClick={() => {
-                      setShowSlabDialog(false);
-                      setSlabDialogState('select');
-                      setSelectedSlabImage(null);
-                      setCropSelection(null);
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-2xl font-bold text-gray-800">
+                      Select Part of Stone
+                    </h2>
+                    <button
+                      onClick={() => {
+                        setShowSlabDialog(false);
+                        setSlabDialogState("select");
+                        setSelectedSlabImage(null);
+                        setCropSelection(null);
                         setShapePosition(null);
-                    }}
-                    className="text-gray-500 hover:text-gray-700 p-1"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                  <p className="text-gray-600 mb-4">Click on the image to position the selected shape, or drag the selection to move it:</p>
-                <div
-                  ref={slabContainerRef}
-                  className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100"
+                      }}
+                      className="text-gray-500 hover:text-gray-700 p-1"
+                    >
+                      <svg
+                        className="w-6 h-6"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <p className="text-gray-600 mb-4">
+                    Click on the image to position the selected shape, or drag
+                    the selection to move it:
+                  </p>
+                  <div
+                    ref={slabContainerRef}
+                    className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100"
                     onClick={(e) => {
-                      // Don't handle click if we're dragging the selection
+                      // Don't handle click if we just finished dragging
+                      if (justFinishedDraggingRef.current) {
+                        justFinishedDraggingRef.current = false;
+                        return;
+                      }
                       if (isDraggingSelection) return;
-                      if (!slabImageRef.current || !slabContainerRef.current) return;
-                      const containerRect = e.currentTarget.getBoundingClientRect();
-                      const imgRect = slabImageRef.current.getBoundingClientRect();
+                      if (!slabImageRef.current || !slabContainerRef.current)
+                        return;
+                      const containerRect =
+                        e.currentTarget.getBoundingClientRect();
+                      const imgRect =
+                        slabImageRef.current.getBoundingClientRect();
                       const x = e.clientX - containerRect.left;
                       const y = e.clientY - containerRect.top;
-                      
+
                       // Check if click is within image bounds
                       const imgLeft = imgRect.left - containerRect.left;
                       const imgTop = imgRect.top - containerRect.top;
                       const imgRight = imgLeft + imgRect.width;
                       const imgBottom = imgTop + imgRect.height;
-                      
-                      if (x >= imgLeft && x <= imgRight && y >= imgTop && y <= imgBottom) {
+
+                      if (
+                        x >= imgLeft &&
+                        x <= imgRight &&
+                        y >= imgTop &&
+                        y <= imgBottom
+                      ) {
                         const imgX = x - imgLeft;
                         const imgY = y - imgTop;
                         setShapePosition({ x: imgX, y: imgY });
@@ -894,98 +1024,148 @@ export default function Home() {
                       }
                     }}
                     onMouseMove={(e) => {
-                      if (!slabImageRef.current || !slabContainerRef.current || !shapePosition || !cropSelection) return;
-                      
-                      const containerRect = e.currentTarget.getBoundingClientRect();
-                      const imgRect = slabImageRef.current.getBoundingClientRect();
+                      if (
+                        !slabImageRef.current ||
+                        !slabContainerRef.current ||
+                        !shapePosition ||
+                        !cropSelection
+                      )
+                        return;
+
+                      const containerRect =
+                        e.currentTarget.getBoundingClientRect();
+                      const imgRect =
+                        slabImageRef.current.getBoundingClientRect();
                       const x = e.clientX - containerRect.left;
                       const y = e.clientY - containerRect.top;
-                      
+
                       // Calculate image bounds
                       const imgLeft = imgRect.left - containerRect.left;
                       const imgTop = imgRect.top - containerRect.top;
                       const imgDisplayWidth = imgRect.width;
                       const imgDisplayHeight = imgRect.height;
-                      
-                      if (isDraggingSelection && dragOffset && selectedSlabImage) {
+
+                      if (
+                        isDraggingSelection &&
+                        dragOffset &&
+                        selectedSlabImage
+                      ) {
                         // Find the selected slab image to get its size properties
-                        const selectedSlab = slabImages.find(slab => slab.url === selectedSlabImage);
+                        const selectedSlab = slabImages.find(
+                          (slab) => slab.url === selectedSlabImage
+                        );
                         if (!selectedSlab) return;
-                        
+
                         // Calculate new position relative to image
                         const newImgX = x - imgLeft - dragOffset.x;
                         const newImgY = y - imgTop - dragOffset.y;
-                        
+
                         // Use the slab image's example size to calculate pixels-to-meters conversion
-                        const pixelsToMetersX = selectedSlab.exampleWidthMeters / imgDisplayWidth;
-                        const pixelsToMetersY = selectedSlab.exampleHeightMeters / imgDisplayHeight;
+                        const pixelsToMetersX =
+                          selectedSlab.exampleWidthMeters / imgDisplayWidth;
+                        const pixelsToMetersY =
+                          selectedSlab.exampleHeightMeters / imgDisplayHeight;
                         const widthInPixels = shapeWidth / pixelsToMetersX;
                         const heightInPixels = shapeHeight / pixelsToMetersY;
-                        
+
                         let halfWidth: number, halfHeight: number;
-                        if (selectedShape === 'circle') {
-                          halfWidth = Math.max(widthInPixels, heightInPixels) / 2;
+                        if (selectedShape === "circle") {
+                          halfWidth =
+                            Math.max(widthInPixels, heightInPixels) / 2;
                           halfHeight = halfWidth;
                         } else {
                           halfWidth = widthInPixels / 2;
                           halfHeight = heightInPixels / 2;
                         }
-                        
+
                         // Constrain to image bounds
-                        const constrainedX = Math.max(halfWidth, Math.min(newImgX, imgDisplayWidth - halfWidth));
-                        const constrainedY = Math.max(halfHeight, Math.min(newImgY, imgDisplayHeight - halfHeight));
-                        
+                        const constrainedX = Math.max(
+                          halfWidth,
+                          Math.min(newImgX, imgDisplayWidth - halfWidth)
+                        );
+                        const constrainedY = Math.max(
+                          halfHeight,
+                          Math.min(newImgY, imgDisplayHeight - halfHeight)
+                        );
+
+                        // Update state for position and selection
                         setShapePosition({ x: constrainedX, y: constrainedY });
-                        // Update crop selection directly during drag (no recalculation)
                         updateCropSelectionDirectly(constrainedX, constrainedY);
-                      } else if (isResizingSelection && resizeHandle && resizeStart) {
+                      } else if (
+                        isResizingSelection &&
+                        resizeHandle &&
+                        resizeStart
+                      ) {
                         // Handle resizing
                         const imgX = x - imgLeft;
                         const imgY = y - imgTop;
-                        
+
                         let newWidth = resizeStart.width;
                         let newHeight = resizeStart.height;
                         let newCenterX = resizeStart.centerX;
                         let newCenterY = resizeStart.centerY;
-                        
+
                         // Calculate resize based on handle
-                        if (resizeHandle.includes('e')) {
-                          const diff = imgX - (resizeStart.centerX + resizeStart.width / 2);
+                        if (resizeHandle.includes("e")) {
+                          const diff =
+                            imgX -
+                            (resizeStart.centerX + resizeStart.width / 2);
                           newWidth = Math.max(20, resizeStart.width + diff * 2);
                         }
-                        if (resizeHandle.includes('w')) {
-                          const diff = (resizeStart.centerX - resizeStart.width / 2) - imgX;
+                        if (resizeHandle.includes("w")) {
+                          const diff =
+                            resizeStart.centerX - resizeStart.width / 2 - imgX;
                           newWidth = Math.max(20, resizeStart.width + diff * 2);
                           newCenterX = resizeStart.centerX - diff;
                         }
-                        if (resizeHandle.includes('s')) {
-                          const diff = imgY - (resizeStart.centerY + resizeStart.height / 2);
-                          newHeight = Math.max(20, resizeStart.height + diff * 2);
+                        if (resizeHandle.includes("s")) {
+                          const diff =
+                            imgY -
+                            (resizeStart.centerY + resizeStart.height / 2);
+                          newHeight = Math.max(
+                            20,
+                            resizeStart.height + diff * 2
+                          );
                         }
-                        if (resizeHandle.includes('n')) {
-                          const diff = (resizeStart.centerY - resizeStart.height / 2) - imgY;
-                          newHeight = Math.max(20, resizeStart.height + diff * 2);
+                        if (resizeHandle.includes("n")) {
+                          const diff =
+                            resizeStart.centerY - resizeStart.height / 2 - imgY;
+                          newHeight = Math.max(
+                            20,
+                            resizeStart.height + diff * 2
+                          );
                           newCenterY = resizeStart.centerY - diff;
                         }
-                        
+
                         // Constrain to image bounds
                         const halfWidth = newWidth / 2;
                         const halfHeight = newHeight / 2;
-                        newCenterX = Math.max(halfWidth, Math.min(newCenterX, imgDisplayWidth - halfWidth));
-                        newCenterY = Math.max(halfHeight, Math.min(newCenterY, imgDisplayHeight - halfHeight));
-                        
+                        newCenterX = Math.max(
+                          halfWidth,
+                          Math.min(newCenterX, imgDisplayWidth - halfWidth)
+                        );
+                        newCenterY = Math.max(
+                          halfHeight,
+                          Math.min(newCenterY, imgDisplayHeight - halfHeight)
+                        );
+
                         // Find the selected slab image to get its size properties
                         if (selectedSlabImage) {
-                          const selectedSlab = slabImages.find(slab => slab.url === selectedSlabImage);
+                          const selectedSlab = slabImages.find(
+                            (slab) => slab.url === selectedSlabImage
+                          );
                           if (selectedSlab) {
                             // Use the slab image's example size to calculate pixels-to-meters conversion
-                            const pixelsToMetersX = selectedSlab.exampleWidthMeters / imgDisplayWidth;
-                            const pixelsToMetersY = selectedSlab.exampleHeightMeters / imgDisplayHeight;
-                            
+                            const pixelsToMetersX =
+                              selectedSlab.exampleWidthMeters / imgDisplayWidth;
+                            const pixelsToMetersY =
+                              selectedSlab.exampleHeightMeters /
+                              imgDisplayHeight;
+
                             // Update width and height in meters
                             const newWidthMeters = newWidth * pixelsToMetersX;
                             const newHeightMeters = newHeight * pixelsToMetersY;
-                            
+
                             setShapeWidth(newWidthMeters);
                             setShapeHeight(newHeightMeters);
                             setShapePosition({ x: newCenterX, y: newCenterY });
@@ -998,516 +1178,757 @@ export default function Home() {
                       // Only update if we were actually dragging or resizing
                       const wasDragging = isDraggingSelection;
                       const wasResizing = isResizingSelection;
-                      
+
+                      // Mark that we just finished dragging to prevent click handler from firing
+                      if (wasDragging || wasResizing) {
+                        justFinishedDraggingRef.current = true;
+                      }
+
                       setIsDraggingSelection(false);
                       setIsResizingSelection(false);
                       setDragOffset(null);
                       setResizeHandle(null);
                       setResizeStart(null);
-                      
-                      // Only update crop selection if we were dragging/resizing and have a position
-                      // Use direct update to avoid jumps
-                      if ((wasDragging || wasResizing) && shapePosition) {
-                        updateCropSelectionDirectly(shapePosition.x, shapePosition.y);
-                      }
                     }}
                     onMouseLeave={() => {
-                      // Only update if we were actually dragging or resizing
-                      const wasDragging = isDraggingSelection;
-                      const wasResizing = isResizingSelection;
-                      
                       setIsDraggingSelection(false);
                       setIsResizingSelection(false);
                       setDragOffset(null);
                       setResizeHandle(null);
                       setResizeStart(null);
-                      
-                      // Only update crop selection if we were dragging/resizing and have a position
-                      // Use direct update to avoid jumps
-                      if ((wasDragging || wasResizing) && shapePosition) {
-                        updateCropSelectionDirectly(shapePosition.x, shapePosition.y);
-                      }
                     }}
-                  style={{ maxHeight: '60vh' }}
-                >
-                  <img
-                    ref={slabImageRef}
-                    src={selectedSlabImage || ''}
-                    style={{objectFit: 'cover'}}
-                    alt="Stone slab"
-                    className="w-full h-auto max-h-[60vh] aspect-ratio-1/1 object-contain pointer-events-none select-none"
-                    draggable={false}
-                    onDragStart={(e) => e.preventDefault()}
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect width="400" height="300" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="16"%3EImage not found%3C/text%3E%3C/svg%3E';
-                    }}
-                  />
-                  {cropSelection && shapePosition && slabImageRef.current && slabContainerRef.current && (() => {
-                    const containerRect = slabContainerRef.current!.getBoundingClientRect();
-                    const imgRect = slabImageRef.current!.getBoundingClientRect();
-                    const imgLeft = imgRect.left - containerRect.left;
-                    const imgTop = imgRect.top - containerRect.top;
-                    
-                    const selectionWidth = Math.abs(cropSelection.endX - cropSelection.startX);
-                    const selectionHeight = Math.abs(cropSelection.endY - cropSelection.startY);
-                    const selectionLeft = imgLeft + Math.min(cropSelection.startX, cropSelection.endX);
-                    const selectionTop = imgTop + Math.min(cropSelection.startY, cropSelection.endY);
-                    const centerX = imgLeft + shapePosition.x;
-                    const centerY = imgTop + shapePosition.y;
-                    
-                    return (
-                      <>
-                        {/* Shape overlay based on selected shape */}
-                        {selectedShape === 'circle' && (
-                      <div
-                            className="absolute border-2 border-indigo-500 bg-indigo-500 bg-opacity-20 rounded-full cursor-move"
-                        style={{
-                              left: `${selectionLeft}px`,
-                              top: `${selectionTop}px`,
-                              width: `${selectionWidth}px`,
-                              height: `${selectionWidth}px`,
-                            }}
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              if (!slabImageRef.current || !slabContainerRef.current) return;
-                              const containerRect = slabContainerRef.current.getBoundingClientRect();
-                              const imgRect = slabImageRef.current.getBoundingClientRect();
-                              const imgLeft = imgRect.left - containerRect.left;
-                              const imgTop = imgRect.top - containerRect.top;
-                              
-                              const mouseX = e.clientX - containerRect.left;
-                              const mouseY = e.clientY - containerRect.top;
-                              const imgX = mouseX - imgLeft;
-                              const imgY = mouseY - imgTop;
-                              
-                              setDragOffset({ x: imgX - shapePosition.x, y: imgY - shapePosition.y });
-                              setIsDraggingSelection(true);
-                            }}
-                          />
-                        )}
-                        {selectedShape === 'triangle' && (
-                          <svg
-                            className="absolute cursor-move"
-                            style={{
-                              left: `${selectionLeft}px`,
-                              top: `${selectionTop}px`,
-                              width: `${selectionWidth}px`,
-                              height: `${selectionHeight}px`,
-                            }}
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              if (!slabImageRef.current || !slabContainerRef.current) return;
-                              const containerRect = slabContainerRef.current.getBoundingClientRect();
-                              const imgRect = slabImageRef.current.getBoundingClientRect();
-                              const imgLeft = imgRect.left - containerRect.left;
-                              const imgTop = imgRect.top - containerRect.top;
-                              
-                              const mouseX = e.clientX - containerRect.left;
-                              const mouseY = e.clientY - containerRect.top;
-                              const imgX = mouseX - imgLeft;
-                              const imgY = mouseY - imgTop;
-                              
-                              setDragOffset({ x: imgX - shapePosition.x, y: imgY - shapePosition.y });
-                              setIsDraggingSelection(true);
-                            }}
-                          >
-                            <polygon
-                              points={`${selectionWidth / 2},0 ${selectionWidth},${selectionHeight} 0,${selectionHeight}`}
-                              fill="rgba(99, 102, 241, 0.2)"
-                              stroke="rgb(99, 102, 241)"
-                              strokeWidth="2"
-                            />
-                          </svg>
-                        )}
-                        {(selectedShape === 'rectangle' || selectedShape === 'cube') && (
-                          <div
-                            className="absolute border-2 border-indigo-500 bg-indigo-500 bg-opacity-20 cursor-move"
-                            style={{
-                              left: `${selectionLeft}px`,
-                              top: `${selectionTop}px`,
-                              width: `${selectionWidth}px`,
-                              height: `${selectionHeight}px`,
-                            }}
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              if (!slabImageRef.current || !slabContainerRef.current) return;
-                              const containerRect = slabContainerRef.current.getBoundingClientRect();
-                              const imgRect = slabImageRef.current.getBoundingClientRect();
-                              const imgLeft = imgRect.left - containerRect.left;
-                              const imgTop = imgRect.top - containerRect.top;
-                              
-                              const mouseX = e.clientX - containerRect.left;
-                              const mouseY = e.clientY - containerRect.top;
-                              const imgX = mouseX - imgLeft;
-                              const imgY = mouseY - imgTop;
-                              
-                              setDragOffset({ x: imgX - shapePosition.x, y: imgY - shapePosition.y });
-                              setIsDraggingSelection(true);
-                            }}
-                          />
-                        )}
-                        {/* Width label on top edge (outside) */}
-                        <div
-                          className="absolute pointer-events-none text-sm font-bold text-indigo-600"
-                          style={{
-                            left: `${centerX}px`,
-                            top: `${selectionTop - 20}px`,
-                            transform: 'translateX(-50%)',
-                          }}
-                        >
-                          {shapeWidth.toFixed(3)} m
-                        </div>
-                        {/* Height label on right edge (outside) */}
-                        <div
-                          className="absolute pointer-events-none text-sm font-bold text-indigo-600"
-                          style={{
-                            left: `${selectionLeft + selectionWidth + 10}px`,
-                            top: `${centerY}px`,
-                            transform: 'translateY(-50%) rotate(90deg)',
-                            transformOrigin: 'center',
-                          }}
-                        >
-                          {shapeHeight.toFixed(3)} m
-                        </div>
-                        {/* Resize handles */}
-                        {['nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'].map((handle) => {
-                          const handleStyle: React.CSSProperties = {
-                            position: 'absolute',
-                            width: '10px',
-                            height: '10px',
-                            backgroundColor: '#3B82F6',
-                            border: '2px solid #1E40AF',
-                            borderRadius: '2px',
-                            cursor: handle === 'nw' || handle === 'se' ? 'nwse-resize' :
-                                    handle === 'ne' || handle === 'sw' ? 'nesw-resize' :
-                                    handle === 'n' || handle === 's' ? 'ns-resize' : 'ew-resize',
-                            zIndex: 10,
-                          };
-                          
-                          if (handle.includes('w')) handleStyle.left = `${selectionLeft - 5}px`;
-                          if (handle.includes('e')) handleStyle.left = `${selectionLeft + selectionWidth - 5}px`;
-                          if (handle.includes('n')) handleStyle.top = `${selectionTop - 5}px`;
-                          if (handle.includes('s')) handleStyle.top = `${selectionTop + selectionHeight - 5}px`;
-                          if (!handle.includes('w') && !handle.includes('e')) handleStyle.left = `${selectionLeft + selectionWidth / 2 - 5}px`;
-                          if (!handle.includes('n') && !handle.includes('s')) handleStyle.top = `${selectionTop + selectionHeight / 2 - 5}px`;
-                          
-                          return (
+                  >
+                    <img
+                      ref={slabImageRef}
+                      src={selectedSlabImage || ""}
+                      alt="Stone slab"
+                      className="w-full pointer-events-none select-none"
+                      style={{
+                        aspectRatio: `${
+                          slabImages.find((s) => s.url === selectedSlabImage)
+                            ?.exampleWidthMeters || 1
+                        } / ${
+                          slabImages.find((s) => s.url === selectedSlabImage)
+                            ?.exampleHeightMeters || 1
+                        }`,
+                        objectFit: "cover",
+                      }}
+                      draggable={false}
+                      onDragStart={(e) => e.preventDefault()}
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src =
+                          'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect width="400" height="300" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="16"%3EImage not found%3C/text%3E%3C/svg%3E';
+                      }}
+                    />
+                    {cropSelection &&
+                      shapePosition &&
+                      slabImageRef.current &&
+                      slabContainerRef.current &&
+                      (() => {
+                        const containerRect =
+                          slabContainerRef.current!.getBoundingClientRect();
+                        const imgRect =
+                          slabImageRef.current!.getBoundingClientRect();
+                        const imgLeft = imgRect.left - containerRect.left;
+                        const imgTop = imgRect.top - containerRect.top;
+
+                        const selectionWidth = Math.abs(
+                          cropSelection.endX - cropSelection.startX
+                        );
+                        const selectionHeight = Math.abs(
+                          cropSelection.endY - cropSelection.startY
+                        );
+                        const selectionLeft =
+                          imgLeft +
+                          Math.min(cropSelection.startX, cropSelection.endX);
+                        const selectionTop =
+                          imgTop +
+                          Math.min(cropSelection.startY, cropSelection.endY);
+                        const centerX = imgLeft + shapePosition.x;
+                        const centerY = imgTop + shapePosition.y;
+
+                        return (
+                          <>
+                            {/* Shape overlay based on selected shape */}
+                            {selectedShape === "circle" && (
+                              <div
+                                ref={
+                                  selectionOverlayRef as React.RefObject<HTMLDivElement>
+                                }
+                                className="absolute border-2 border-indigo-500 bg-indigo-500 bg-opacity-20 rounded-full cursor-move"
+                                style={{
+                                  left: `${selectionLeft}px`,
+                                  top: `${selectionTop}px`,
+                                  width: `${selectionWidth}px`,
+                                  height: `${selectionWidth}px`,
+                                }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  if (
+                                    !slabImageRef.current ||
+                                    !slabContainerRef.current
+                                  )
+                                    return;
+                                  const containerRect =
+                                    slabContainerRef.current.getBoundingClientRect();
+                                  const imgRect =
+                                    slabImageRef.current.getBoundingClientRect();
+                                  const imgLeft =
+                                    imgRect.left - containerRect.left;
+                                  const imgTop =
+                                    imgRect.top - containerRect.top;
+
+                                  const mouseX = e.clientX - containerRect.left;
+                                  const mouseY = e.clientY - containerRect.top;
+                                  const imgX = mouseX - imgLeft;
+                                  const imgY = mouseY - imgTop;
+
+                                  setDragOffset({
+                                    x: imgX - shapePosition.x,
+                                    y: imgY - shapePosition.y,
+                                  });
+                                  setIsDraggingSelection(true);
+                                }}
+                              />
+                            )}
+                            {selectedShape === "triangle" && (
+                              <svg
+                                ref={
+                                  selectionOverlayRef as React.RefObject<SVGSVGElement>
+                                }
+                                className="absolute cursor-move"
+                                style={{
+                                  left: `${selectionLeft}px`,
+                                  top: `${selectionTop}px`,
+                                  width: `${selectionWidth}px`,
+                                  height: `${selectionHeight}px`,
+                                }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  if (
+                                    !slabImageRef.current ||
+                                    !slabContainerRef.current
+                                  )
+                                    return;
+                                  const containerRect =
+                                    slabContainerRef.current.getBoundingClientRect();
+                                  const imgRect =
+                                    slabImageRef.current.getBoundingClientRect();
+                                  const imgLeft =
+                                    imgRect.left - containerRect.left;
+                                  const imgTop =
+                                    imgRect.top - containerRect.top;
+
+                                  const mouseX = e.clientX - containerRect.left;
+                                  const mouseY = e.clientY - containerRect.top;
+                                  const imgX = mouseX - imgLeft;
+                                  const imgY = mouseY - imgTop;
+
+                                  setDragOffset({
+                                    x: imgX - shapePosition.x,
+                                    y: imgY - shapePosition.y,
+                                  });
+                                  setIsDraggingSelection(true);
+                                }}
+                              >
+                                <polygon
+                                  points={`${
+                                    selectionWidth / 2
+                                  },0 ${selectionWidth},${selectionHeight} 0,${selectionHeight}`}
+                                  fill="rgba(99, 102, 241, 0.2)"
+                                  stroke="rgb(99, 102, 241)"
+                                  strokeWidth="2"
+                                />
+                              </svg>
+                            )}
+                            {(selectedShape === "rectangle" ||
+                              selectedShape === "cube") && (
+                              <div
+                                ref={
+                                  selectionOverlayRef as React.RefObject<HTMLDivElement>
+                                }
+                                className="absolute border-2 border-indigo-500 bg-indigo-500 bg-opacity-20 cursor-move"
+                                style={{
+                                  left: `${selectionLeft}px`,
+                                  top: `${selectionTop}px`,
+                                  width: `${selectionWidth}px`,
+                                  height: `${selectionHeight}px`,
+                                }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  if (
+                                    !slabImageRef.current ||
+                                    !slabContainerRef.current
+                                  )
+                                    return;
+                                  const containerRect =
+                                    slabContainerRef.current.getBoundingClientRect();
+                                  const imgRect =
+                                    slabImageRef.current.getBoundingClientRect();
+                                  const imgLeft =
+                                    imgRect.left - containerRect.left;
+                                  const imgTop =
+                                    imgRect.top - containerRect.top;
+
+                                  const mouseX = e.clientX - containerRect.left;
+                                  const mouseY = e.clientY - containerRect.top;
+                                  const imgX = mouseX - imgLeft;
+                                  const imgY = mouseY - imgTop;
+
+                                  setDragOffset({
+                                    x: imgX - shapePosition.x,
+                                    y: imgY - shapePosition.y,
+                                  });
+                                  setIsDraggingSelection(true);
+                                }}
+                              />
+                            )}
+                            {/* Width label on top edge (outside) */}
                             <div
-                              key={handle}
-                              style={handleStyle}
-                              onMouseDown={(e) => {
-                                e.stopPropagation();
-                                if (!shapePosition || !cropSelection) return;
-                                
-                                setResizeHandle(handle);
-                                setResizeStart({
-                                  x: e.clientX,
-                                  y: e.clientY,
-                                  width: selectionWidth,
-                                  height: selectionHeight,
-                                  centerX: shapePosition.x,
-                                  centerY: shapePosition.y,
-                                });
-                                setIsResizingSelection(true);
+                              className="absolute pointer-events-none text-sm font-bold text-indigo-600"
+                              style={{
+                                left: `${centerX}px`,
+                                top: `${selectionTop - 20}px`,
+                                transform: "translateX(-50%)",
                               }}
-                            />
-                          );
-                        })}
-                      </>
-                    );
-                  })()}
-                </div>
-                <div className="flex gap-4 justify-end mt-4">
-                  <button
-                    onClick={handleBackToSlabSelection}
-                    className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={handleAddCropToCanvas}
-                    disabled={!cropSelection}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-                  >
-                    Confirm
-                  </button>
+                            >
+                              {shapeWidth.toFixed(3)} m
+                            </div>
+                            {/* Height label on right edge (outside) */}
+                            <div
+                              className="absolute pointer-events-none text-sm font-bold text-indigo-600"
+                              style={{
+                                left: `${
+                                  selectionLeft + selectionWidth + 10
+                                }px`,
+                                top: `${centerY}px`,
+                                transform: "translateY(-50%) rotate(90deg)",
+                                transformOrigin: "center",
+                              }}
+                            >
+                              {shapeHeight.toFixed(3)} m
+                            </div>
+                            {/* Resize handles */}
+                            {["nw", "ne", "sw", "se", "n", "s", "e", "w"].map(
+                              (handle) => {
+                                const handleStyle: React.CSSProperties = {
+                                  position: "absolute",
+                                  width: "10px",
+                                  height: "10px",
+                                  backgroundColor: "#3B82F6",
+                                  border: "2px solid #1E40AF",
+                                  borderRadius: "2px",
+                                  cursor:
+                                    handle === "nw" || handle === "se"
+                                      ? "nwse-resize"
+                                      : handle === "ne" || handle === "sw"
+                                      ? "nesw-resize"
+                                      : handle === "n" || handle === "s"
+                                      ? "ns-resize"
+                                      : "ew-resize",
+                                  zIndex: 10,
+                                };
+
+                                if (handle.includes("w"))
+                                  handleStyle.left = `${selectionLeft - 5}px`;
+                                if (handle.includes("e"))
+                                  handleStyle.left = `${
+                                    selectionLeft + selectionWidth - 5
+                                  }px`;
+                                if (handle.includes("n"))
+                                  handleStyle.top = `${selectionTop - 5}px`;
+                                if (handle.includes("s"))
+                                  handleStyle.top = `${
+                                    selectionTop + selectionHeight - 5
+                                  }px`;
+                                if (
+                                  !handle.includes("w") &&
+                                  !handle.includes("e")
+                                )
+                                  handleStyle.left = `${
+                                    selectionLeft + selectionWidth / 2 - 5
+                                  }px`;
+                                if (
+                                  !handle.includes("n") &&
+                                  !handle.includes("s")
+                                )
+                                  handleStyle.top = `${
+                                    selectionTop + selectionHeight / 2 - 5
+                                  }px`;
+
+                                return (
+                                  <div
+                                    key={handle}
+                                    style={handleStyle}
+                                    onMouseDown={(e) => {
+                                      e.stopPropagation();
+                                      if (!shapePosition || !cropSelection)
+                                        return;
+
+                                      setResizeHandle(handle);
+                                      setResizeStart({
+                                        x: e.clientX,
+                                        y: e.clientY,
+                                        width: selectionWidth,
+                                        height: selectionHeight,
+                                        centerX: shapePosition.x,
+                                        centerY: shapePosition.y,
+                                      });
+                                      setIsResizingSelection(true);
+                                    }}
+                                  />
+                                );
+                              }
+                            )}
+                          </>
+                        );
+                      })()}
+                  </div>
+                  <div className="flex gap-4 justify-end mt-4">
+                    <button
+                      onClick={handleBackToSlabSelection}
+                      className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={handleAddCropToCanvas}
+                      disabled={!cropSelection}
+                      className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+                    >
+                      Confirm
+                    </button>
+                  </div>
                 </div>
               </div>
-          </div>)}
+            )}
+          </div>
         </div>
-      </div>
       )}
 
       {/* Stone View Dialog */}
       {showStoneViewDialog && viewingStone && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-gray-800">Selected Stone Area</h2>
-              <button
-                onClick={() => {
-                  setShowStoneViewDialog(false);
-                  setViewingStone(null);
-                  setViewSelectionModified(false);
-                }}
-                className="text-gray-500 hover:text-gray-700 p-1"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <p className="text-gray-600 mb-4">The selected area is highlighted on the original image. You can drag it to move:</p>
-            <div
-              ref={viewStoneContainerRef}
-              className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100"
-              style={{ height: '60vh' }}
-              onMouseMove={(e) => {
-                if (!viewStoneImageRef.current || !viewStoneContainerRef.current || !viewingStone || !cropOverlayStyle) return;
-                
-                const containerRect = e.currentTarget.getBoundingClientRect();
-                const imgRect = viewStoneImageRef.current.getBoundingClientRect();
-                const imgLeft = imgRect.left - containerRect.left;
-                const imgTop = imgRect.top - containerRect.top;
-                const imgDisplayWidth = imgRect.width;
-                const imgDisplayHeight = imgRect.height;
-                
-                if (isDraggingViewOverlay && viewDragOffset) {
-                  const x = e.clientX - containerRect.left;
-                  const y = e.clientY - containerRect.top;
-                  
-                  const newLeft = x - viewDragOffset.x;
-                  const newTop = y - viewDragOffset.y;
-                  
-                  // Parse current overlay dimensions
-                  const currentWidth = parseFloat(cropOverlayStyle.width);
-                  const currentHeight = parseFloat(cropOverlayStyle.height);
-                  
-                  // Constrain to image bounds
-                  const constrainedLeft = Math.max(imgLeft, Math.min(newLeft, imgLeft + imgDisplayWidth - currentWidth));
-                  const constrainedTop = Math.max(imgTop, Math.min(newTop, imgTop + imgDisplayHeight - currentHeight));
-                  
-                  setCropOverlayStyle({
-                    left: `${constrainedLeft}px`,
-                    top: `${constrainedTop}px`,
-                    width: cropOverlayStyle.width,
-                    height: cropOverlayStyle.height,
-                  });
-                }
-              }}
-              onMouseUp={() => {
-                if (isDraggingViewOverlay) {
-                  // Update the viewingStone's cropSelection and recrop the image (preserve size, only change position)
-                  if (viewStoneImageRef.current && viewStoneContainerRef.current && viewingStone && cropOverlayStyle) {
-                    const img = viewStoneImageRef.current;
-                    const containerRect = viewStoneContainerRef.current.getBoundingClientRect();
-                    const imgRect = img.getBoundingClientRect();
-                    const imgNaturalWidth = img.naturalWidth;
-                    const imgNaturalHeight = img.naturalHeight;
-                    const imgDisplayWidth = imgRect.width;
-                    const imgDisplayHeight = imgRect.height;
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex">
+            {/* Sidebar */}
+            <div className="w-64 flex-shrink-0 p-4 border-r border-gray-200 flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-800">Stone Area</h2>
+                <button
+                  onClick={() => {
+                    setShowStoneViewDialog(false);
+                    setViewingStone(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700 p-1"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Drag the selection to reposition on the slab.
+              </p>
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                  Stone Information
+                </h3>
+                <div className="text-sm text-gray-600 space-y-1">
+                  {(() => {
+                    const maxDisplaySize = 1200;
+                    const aspectRatio = canvasSizeX / canvasSizeY;
+                    let canvasWidth = 800;
+                    let canvasHeight = 600;
 
-                    // Calculate scale factors
-                    const scaleX = imgNaturalWidth / imgDisplayWidth;
-                    const scaleY = imgNaturalHeight / imgDisplayHeight;
-
-                    // Get overlay position relative to image
-                    const imgLeft = imgRect.left - containerRect.left;
-                    const imgTop = imgRect.top - containerRect.top;
-                    const overlayLeft = parseFloat(cropOverlayStyle.left) - imgLeft;
-                    const overlayTop = parseFloat(cropOverlayStyle.top) - imgTop;
-                    
-                    // Preserve the original crop size (don't change it)
-                    const originalCropWidth = viewingStone.cropSelection.endX - viewingStone.cropSelection.startX;
-                    const originalCropHeight = viewingStone.cropSelection.endY - viewingStone.cropSelection.startY;
-                    
-                    // Calculate new crop position in natural image coordinates
-                    const newStartX = overlayLeft * scaleX;
-                    const newStartY = overlayTop * scaleY;
-                    const newEndX = newStartX + originalCropWidth;
-                    const newEndY = newStartY + originalCropHeight;
-
-                    const cropWidth = originalCropWidth;
-                    const cropHeight = originalCropHeight;
-
-                    // Create a canvas to crop the image
-                    const canvas = document.createElement('canvas');
-                    canvas.width = cropWidth;
-                    canvas.height = cropHeight;
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                      // Draw the cropped portion
-                      ctx.drawImage(
-                        img,
-                        newStartX, newStartY, cropWidth, cropHeight,
-                        0, 0, cropWidth, cropHeight
-                      );
-
-                      // Convert to data URL
-                      const croppedDataURL = canvas.toDataURL('image/png');
-
-                      // Update the stone image - preserve size, only update position and imageData
-                      const updatedStone: StoneImage = {
-                        ...viewingStone,
-                        imageData: croppedDataURL,
-                        // Keep original width and height (don't change size)
-                        cropSelection: {
-                          startX: newStartX,
-                          startY: newStartY,
-                          endX: newEndX,
-                          endY: newEndY,
-                        },
-                      };
-
-                      setViewingStone(updatedStone);
-                      
-                      // Update stoneImages array
-                      setStoneImages(stoneImages.map(s => 
-                        s.id === viewingStone.id ? updatedStone : s
-                      ));
+                    if (aspectRatio >= 1) {
+                      canvasWidth = Math.min(maxDisplaySize, 800);
+                      canvasHeight = canvasWidth / aspectRatio;
+                    } else {
+                      canvasHeight = Math.min(maxDisplaySize, 600);
+                      canvasWidth = canvasHeight * aspectRatio;
                     }
-                  }
-                }
-                setIsDraggingViewOverlay(false);
-                setViewDragOffset(null);
-                setViewSelectionModified(false);
-              }}
-              onMouseLeave={() => {
-                setIsDraggingViewOverlay(false);
-                setViewDragOffset(null);
-              }}
-            >
-              <img
-                ref={viewStoneImageRef}
-                src={viewingStone.originalImageUrl}
-                alt="Original stone slab"
-                className="w-full h-[60vh] object-cover pointer-events-none select-none"
-                draggable={false}
-                onDragStart={(e) => e.preventDefault()}
-                onLoad={() => {
-                  if (viewStoneImageRef.current && viewStoneContainerRef.current && viewingStone) {
-                    const containerRect = viewStoneContainerRef.current.getBoundingClientRect();
-                    const imgRect = viewStoneImageRef.current.getBoundingClientRect();
-                    const imgLeft = imgRect.left - containerRect.left;
-                    const imgTop = imgRect.top - containerRect.top;
-                    const imgDisplayWidth = imgRect.width;
-                    const imgDisplayHeight = imgRect.height;
-                    const imgNaturalWidth = viewStoneImageRef.current.naturalWidth;
-                    const imgNaturalHeight = viewStoneImageRef.current.naturalHeight;
-                    
-                    // Calculate the scale factor from natural to display
-                    const scaleX = imgDisplayWidth / imgNaturalWidth;
-                    const scaleY = imgDisplayHeight / imgNaturalHeight;
-                    
-                    // Convert cropSelection from natural image coordinates to current display coordinates
-                    const displayStartX = viewingStone.cropSelection.startX * scaleX;
-                    const displayStartY = viewingStone.cropSelection.startY * scaleY;
-                    const displayEndX = viewingStone.cropSelection.endX * scaleX;
-                    const displayEndY = viewingStone.cropSelection.endY * scaleY;
-                    
+
+                    if (canvasWidth < 400) {
+                      canvasWidth = 400;
+                      canvasHeight = canvasWidth / aspectRatio;
+                    }
+                    if (canvasHeight < 300) {
+                      canvasHeight = 300;
+                      canvasWidth = canvasHeight * aspectRatio;
+                    }
+
+                    const pixelsToMetersX = canvasSizeX / canvasWidth;
+                    const pixelsToMetersY = canvasSizeY / canvasHeight;
+                    const distanceLeft = viewingStone.x * pixelsToMetersX;
+                    const distanceTop = viewingStone.y * pixelsToMetersY;
+
+                    const selectedSlab = slabImages.find(
+                      (slab) => slab.url === viewingStone.originalImageUrl
+                    );
+                    const sizeInMeters = selectedSlab
+                      ? {
+                          width: viewingStone.width * pixelsToMetersX,
+                          height: viewingStone.height * pixelsToMetersY,
+                        }
+                      : null;
+
+                    return (
+                      <>
+                        <div>Left: {distanceLeft.toFixed(3)}m</div>
+                        <div>Top: {distanceTop.toFixed(3)}m</div>
+                        <div>
+                          Rotation: {Math.round(viewingStone.rotation)}°
+                        </div>
+                        {sizeInMeters && (
+                          <>
+                            <div>Width: {sizeInMeters.width.toFixed(3)}m</div>
+                            <div>Height: {sizeInMeters.height.toFixed(3)}m</div>
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Image Section */}
+            <div className="flex-1 p-4 overflow-auto">
+              <div
+                ref={viewStoneContainerRef}
+                className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100 max-h-[70vh]"
+                onMouseMove={(e) => {
+                  if (
+                    !viewStoneImageRef.current ||
+                    !viewStoneContainerRef.current ||
+                    !viewingStone ||
+                    !cropOverlayStyle
+                  )
+                    return;
+
+                  const containerRect = e.currentTarget.getBoundingClientRect();
+                  const imgRect =
+                    viewStoneImageRef.current.getBoundingClientRect();
+                  const imgLeft = imgRect.left - containerRect.left;
+                  const imgTop = imgRect.top - containerRect.top;
+                  const imgDisplayWidth = imgRect.width;
+                  const imgDisplayHeight = imgRect.height;
+
+                  if (isDraggingViewOverlay && viewDragOffset) {
+                    const x = e.clientX - containerRect.left;
+                    const y = e.clientY - containerRect.top;
+
+                    const newLeft = x - viewDragOffset.x;
+                    const newTop = y - viewDragOffset.y;
+
+                    // Parse current overlay dimensions
+                    const currentWidth = parseFloat(cropOverlayStyle.width);
+                    const currentHeight = parseFloat(cropOverlayStyle.height);
+
+                    // Constrain to image bounds
+                    const constrainedLeft = Math.max(
+                      imgLeft,
+                      Math.min(
+                        newLeft,
+                        imgLeft + imgDisplayWidth - currentWidth
+                      )
+                    );
+                    const constrainedTop = Math.max(
+                      imgTop,
+                      Math.min(
+                        newTop,
+                        imgTop + imgDisplayHeight - currentHeight
+                      )
+                    );
+
                     setCropOverlayStyle({
-                      left: `${imgLeft + displayStartX}px`,
-                      top: `${imgTop + displayStartY}px`,
-                      width: `${displayEndX - displayStartX}px`,
-                      height: `${displayEndY - displayStartY}px`,
+                      left: `${constrainedLeft}px`,
+                      top: `${constrainedTop}px`,
+                      width: cropOverlayStyle.width,
+                      height: cropOverlayStyle.height,
                     });
                   }
                 }}
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect width="400" height="300" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="16"%3EImage not found%3C/text%3E%3C/svg%3E';
+                onMouseUp={() => {
+                  if (isDraggingViewOverlay) {
+                    // Update the viewingStone's cropSelection and recrop the image (preserve size, only change position)
+                    if (
+                      viewStoneImageRef.current &&
+                      viewStoneContainerRef.current &&
+                      viewingStone &&
+                      cropOverlayStyle
+                    ) {
+                      const img = viewStoneImageRef.current;
+                      const containerRect =
+                        viewStoneContainerRef.current.getBoundingClientRect();
+                      const imgRect = img.getBoundingClientRect();
+                      const imgNaturalWidth = img.naturalWidth;
+                      const imgNaturalHeight = img.naturalHeight;
+                      const imgDisplayWidth = imgRect.width;
+                      const imgDisplayHeight = imgRect.height;
+
+                      // Calculate scale factors
+                      const scaleX = imgNaturalWidth / imgDisplayWidth;
+                      const scaleY = imgNaturalHeight / imgDisplayHeight;
+
+                      // Get overlay position relative to image
+                      const imgLeft = imgRect.left - containerRect.left;
+                      const imgTop = imgRect.top - containerRect.top;
+                      const overlayLeft =
+                        parseFloat(cropOverlayStyle.left) - imgLeft;
+                      const overlayTop =
+                        parseFloat(cropOverlayStyle.top) - imgTop;
+
+                      // Preserve the original crop size (don't change it)
+                      const originalCropWidth =
+                        viewingStone.cropSelection.endX -
+                        viewingStone.cropSelection.startX;
+                      const originalCropHeight =
+                        viewingStone.cropSelection.endY -
+                        viewingStone.cropSelection.startY;
+
+                      // Calculate new crop position in natural image coordinates
+                      const newStartX = overlayLeft * scaleX;
+                      const newStartY = overlayTop * scaleY;
+                      const newEndX = newStartX + originalCropWidth;
+                      const newEndY = newStartY + originalCropHeight;
+
+                      const cropWidth = originalCropWidth;
+                      const cropHeight = originalCropHeight;
+
+                      // Create a canvas to crop the image
+                      const canvas = document.createElement("canvas");
+                      canvas.width = cropWidth;
+                      canvas.height = cropHeight;
+                      const ctx = canvas.getContext("2d");
+                      if (ctx) {
+                        // Draw the cropped portion
+                        ctx.drawImage(
+                          img,
+                          newStartX,
+                          newStartY,
+                          cropWidth,
+                          cropHeight,
+                          0,
+                          0,
+                          cropWidth,
+                          cropHeight
+                        );
+
+                        // Convert to data URL
+                        const croppedDataURL = canvas.toDataURL("image/png");
+
+                        // Update the stone image - preserve size, only update position and imageData
+                        const updatedStone: StoneImage = {
+                          ...viewingStone,
+                          imageData: croppedDataURL,
+                          // Keep original width and height (don't change size)
+                          cropSelection: {
+                            startX: newStartX,
+                            startY: newStartY,
+                            endX: newEndX,
+                            endY: newEndY,
+                          },
+                        };
+
+                        setViewingStone(updatedStone);
+
+                        // Update stoneImages array
+                        setStoneImages(
+                          stoneImages.map((s) =>
+                            s.id === viewingStone.id ? updatedStone : s
+                          )
+                        );
+                      }
+                    }
+                  }
+                  setIsDraggingViewOverlay(false);
+                  setViewDragOffset(null);
                 }}
-              />
-              {cropOverlayStyle && (
-                <>
-                  <div
-                    className="absolute border-2 border-indigo-500 bg-indigo-500 bg-opacity-20 cursor-move"
-                    style={cropOverlayStyle}
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      if (!viewStoneImageRef.current || !viewStoneContainerRef.current || !cropOverlayStyle) return;
-                      const containerRect = viewStoneContainerRef.current.getBoundingClientRect();
-                      const mouseX = e.clientX - containerRect.left;
-                      const mouseY = e.clientY - containerRect.top;
-                      const overlayLeft = parseFloat(cropOverlayStyle.left);
-                      const overlayTop = parseFloat(cropOverlayStyle.top);
-                      
-                      setViewDragOffset({ x: mouseX - overlayLeft, y: mouseY - overlayTop });
-                      setIsDraggingViewOverlay(true);
-                      setViewSelectionModified(true);
-                    }}
-                  />
-              </>
-            )}
-            </div>
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Stone Information</h3>
-              <div className="text-sm text-gray-600 space-y-1">
-                {(() => {
-                  // Calculate actual canvas dimensions
-                  const maxDisplaySize = 1200;
-                  const aspectRatio = canvasSizeX / canvasSizeY;
-                  let canvasWidth = 800;
-                  let canvasHeight = 600;
-                  
-                  if (aspectRatio >= 1) {
-                    canvasWidth = Math.min(maxDisplaySize, 800);
-                    canvasHeight = canvasWidth / aspectRatio;
-                  } else {
-                    canvasHeight = Math.min(maxDisplaySize, 600);
-                    canvasWidth = canvasHeight * aspectRatio;
-                  }
-                  
-                  if (canvasWidth < 400) {
-                    canvasWidth = 400;
-                    canvasHeight = canvasWidth / aspectRatio;
-                  }
-                  if (canvasHeight < 300) {
-                    canvasHeight = 300;
-                    canvasWidth = canvasHeight * aspectRatio;
-                  }
-                  
-                  const pixelsToMetersX = canvasSizeX / canvasWidth;
-                  const pixelsToMetersY = canvasSizeY / canvasHeight;
-                  const distanceLeft = viewingStone.x * pixelsToMetersX;
-                  const distanceTop = viewingStone.y * pixelsToMetersY;
-                  
-                  // Find the slab image to get its size properties for size display
-                  const selectedSlab = slabImages.find(slab => slab.url === viewingStone.originalImageUrl);
-                  const sizeInMeters = selectedSlab ? {
-                    width: viewingStone.width * pixelsToMetersX,
-                    height: viewingStone.height * pixelsToMetersY,
-                  } : null;
-                  
-                  return (
-                    <>
-                      <div>Position: Left {distanceLeft.toFixed(3)}m, Top {distanceTop.toFixed(3)}m</div>
-                      <div>Rotation: {Math.round(viewingStone.rotation)}°</div>
-                      {sizeInMeters ? (
-                        <div>Size: {sizeInMeters.width.toFixed(3)}m × {sizeInMeters.height.toFixed(3)}m</div>
-                      ) : (
-                        <div>Size: {viewingStone.width.toFixed(0)} × {viewingStone.height.toFixed(0)}px</div>
-                      )}
-                    </>
-                  );
-                })()}
+                onMouseLeave={() => {
+                  setIsDraggingViewOverlay(false);
+                  setViewDragOffset(null);
+                }}
+              >
+                <img
+                  ref={viewStoneImageRef}
+                  src={viewingStone.originalImageUrl}
+                  alt="Original stone slab"
+                  className="w-full pointer-events-none select-none"
+                  style={{
+                    aspectRatio: `${
+                      slabImages.find(
+                        (s) => s.url === viewingStone.originalImageUrl
+                      )?.exampleWidthMeters || 1
+                    } / ${
+                      slabImages.find(
+                        (s) => s.url === viewingStone.originalImageUrl
+                      )?.exampleHeightMeters || 1
+                    }`,
+                    objectFit: "cover",
+                  }}
+                  draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
+                  onLoad={() => {
+                    if (
+                      viewStoneImageRef.current &&
+                      viewStoneContainerRef.current &&
+                      viewingStone
+                    ) {
+                      const containerRect =
+                        viewStoneContainerRef.current.getBoundingClientRect();
+                      const imgRect =
+                        viewStoneImageRef.current.getBoundingClientRect();
+                      const imgLeft = imgRect.left - containerRect.left;
+                      const imgTop = imgRect.top - containerRect.top;
+                      const imgDisplayWidth = imgRect.width;
+                      const imgDisplayHeight = imgRect.height;
+                      const imgNaturalWidth =
+                        viewStoneImageRef.current.naturalWidth;
+                      const imgNaturalHeight =
+                        viewStoneImageRef.current.naturalHeight;
+
+                      // Calculate the scale factor from natural to display
+                      const scaleX = imgDisplayWidth / imgNaturalWidth;
+                      const scaleY = imgDisplayHeight / imgNaturalHeight;
+
+                      // Convert cropSelection from natural image coordinates to current display coordinates
+                      const displayStartX =
+                        viewingStone.cropSelection.startX * scaleX;
+                      const displayStartY =
+                        viewingStone.cropSelection.startY * scaleY;
+                      const displayEndX =
+                        viewingStone.cropSelection.endX * scaleX;
+                      const displayEndY =
+                        viewingStone.cropSelection.endY * scaleY;
+
+                      setCropOverlayStyle({
+                        left: `${imgLeft + displayStartX}px`,
+                        top: `${imgTop + displayStartY}px`,
+                        width: `${displayEndX - displayStartX}px`,
+                        height: `${displayEndY - displayStartY}px`,
+                      });
+                    }
+                  }}
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src =
+                      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect width="400" height="300" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="16"%3EImage not found%3C/text%3E%3C/svg%3E';
+                  }}
+                />
+                {cropOverlayStyle && (
+                  <>
+                    {/* Selection overlay with handles */}
+                    <div
+                      className="absolute cursor-move"
+                      style={{
+                        ...cropOverlayStyle,
+                        border: "2px solid #6366f1",
+                        backgroundColor: "rgba(99, 102, 241, 0.15)",
+                      }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        if (
+                          !viewStoneImageRef.current ||
+                          !viewStoneContainerRef.current ||
+                          !cropOverlayStyle
+                        )
+                          return;
+                        const containerRect =
+                          viewStoneContainerRef.current.getBoundingClientRect();
+                        const mouseX = e.clientX - containerRect.left;
+                        const mouseY = e.clientY - containerRect.top;
+                        const overlayLeft = parseFloat(cropOverlayStyle.left);
+                        const overlayTop = parseFloat(cropOverlayStyle.top);
+
+                        setViewDragOffset({
+                          x: mouseX - overlayLeft,
+                          y: mouseY - overlayTop,
+                        });
+                        setIsDraggingViewOverlay(true);
+                      }}
+                    >
+                      {/* Dimension labels */}
+                      {(() => {
+                        const maxDisplaySize = 1200;
+                        const aspectRatio = canvasSizeX / canvasSizeY;
+                        let canvasWidth = 800;
+                        let canvasHeight = 600;
+                        if (aspectRatio >= 1) {
+                          canvasWidth = Math.min(maxDisplaySize, 800);
+                          canvasHeight = canvasWidth / aspectRatio;
+                        } else {
+                          canvasHeight = Math.min(maxDisplaySize, 600);
+                          canvasWidth = canvasHeight * aspectRatio;
+                        }
+                        if (canvasWidth < 400) {
+                          canvasWidth = 400;
+                          canvasHeight = canvasWidth / aspectRatio;
+                        }
+                        if (canvasHeight < 300) {
+                          canvasHeight = 300;
+                          canvasWidth = canvasHeight * aspectRatio;
+                        }
+                        const pixelsToMetersX = canvasSizeX / canvasWidth;
+                        const pixelsToMetersY = canvasSizeY / canvasHeight;
+                        const widthM = viewingStone.width * pixelsToMetersX;
+                        const heightM = viewingStone.height * pixelsToMetersY;
+
+                        return (
+                          <>
+                            {/* Top label (width) */}
+                            <div
+                              className="absolute left-1/2 -translate-x-1/2 -top-6 text-sm font-semibold text-indigo-500 whitespace-nowrap"
+                              style={{
+                                textShadow: "0 0 3px white, 0 0 3px white",
+                              }}
+                            >
+                              {widthM.toFixed(3)} m
+                            </div>
+                            {/* Right label (height) */}
+                            <div
+                              className="absolute top-1/2 -right-2 translate-x-full -translate-y-1/2 text-sm font-semibold text-indigo-500 whitespace-nowrap"
+                              style={{
+                                writingMode: "vertical-rl",
+                                textShadow: "0 0 3px white, 0 0 3px white",
+                              }}
+                            >
+                              {heightM.toFixed(3)} m
+                            </div>
+                          </>
+                        );
+                      })()}
+
+                      {/* Corner handles */}
+                      <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-indigo-500 border border-white" />
+                      <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-indigo-500 border border-white" />
+                      <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-indigo-500 border border-white" />
+                      <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-indigo-500 border border-white" />
+
+                      {/* Edge handles */}
+                      <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-indigo-500 border border-white" />
+                      <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-indigo-500 border border-white" />
+                      <div className="absolute top-1/2 -left-1.5 -translate-y-1/2 w-3 h-3 bg-indigo-500 border border-white" />
+                      <div className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-3 h-3 bg-indigo-500 border border-white" />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
-            {viewSelectionModified && (
-              <div className="mt-4 flex justify-end">
-                <button
-                  onClick={handleConfirmViewSelectionChange}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
-                >
-                  Confirm Changes
-                </button>
-              </div>
-            )}
           </div>
         </div>
       )}
     </div>
   );
 }
-
