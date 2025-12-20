@@ -67,7 +67,7 @@ function Canvas3DPreContent() {
     // Position camera directly above looking down
     camera.position.set(width / 2, 10, height / 2);
     camera.lookAt(width / 2, tableHeight, height / 2);
-    camera.zoom = 1;
+    camera.zoom = 0.4;
     camera.updateProjectionMatrix();
     cameraRef.current = camera;
 

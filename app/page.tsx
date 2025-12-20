@@ -122,7 +122,7 @@ export default function Home() {
       url: "/images/stone.3.png",
       exampleWidthMeters: 3.0,
       exampleHeightMeters: 3.0,
-    },
+    }
   ];
 
   const handleSlabImageClick = (url: string) => {
@@ -1607,7 +1607,7 @@ export default function Home() {
             <div className="flex-1 p-4 overflow-auto">
               <div
                 ref={viewStoneContainerRef}
-                className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100 max-h-[70vh]"
+                className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100 max-h-[100vh]"
                 onMouseMove={(e) => {
                   if (
                     !viewStoneImageRef.current ||
