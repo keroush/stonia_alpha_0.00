@@ -15,6 +15,14 @@ interface StoneImage {
   cropSelection: { startX: number; startY: number; endX: number; endY: number };
 }
 
+interface IgnoreArea {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface DrawingCanvasProps {
   backgroundImage: string | null;
   stageRef: React.RefObject<any>;
@@ -25,6 +33,11 @@ interface DrawingCanvasProps {
   selectedStoneId: string | null;
   setSelectedStoneId: (id: string | null) => void;
   onDeleteStone: (id: string) => void;
+  ignoreAreas: IgnoreArea[];
+  setIgnoreAreas: Dispatch<SetStateAction<IgnoreArea[]>>;
+  selectedIgnoreAreaId: string | null;
+  setSelectedIgnoreAreaId: (id: string | null) => void;
+  onDeleteIgnoreArea: (id: string) => void;
 }
 
 export default function DrawingCanvas({
@@ -37,6 +50,11 @@ export default function DrawingCanvas({
   selectedStoneId,
   setSelectedStoneId,
   onDeleteStone,
+  ignoreAreas,
+  setIgnoreAreas,
+  selectedIgnoreAreaId,
+  setSelectedIgnoreAreaId,
+  onDeleteIgnoreArea,
 }: DrawingCanvasProps) {
   const [isClient, setIsClient] = useState(false);
   const [KonvaComponents, setKonvaComponents] = useState<any>(null);
@@ -111,10 +129,15 @@ export default function DrawingCanvas({
   // Handle keyboard delete
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedStoneId) {
+      if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        onDeleteStone(selectedStoneId);
-        setSelectedStoneId(null);
+        if (selectedStoneId) {
+          onDeleteStone(selectedStoneId);
+          setSelectedStoneId(null);
+        } else if (selectedIgnoreAreaId) {
+          onDeleteIgnoreArea(selectedIgnoreAreaId);
+          setSelectedIgnoreAreaId(null);
+        }
       }
     };
 
@@ -122,7 +145,14 @@ export default function DrawingCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedStoneId, onDeleteStone, setSelectedStoneId]);
+  }, [
+    selectedStoneId,
+    selectedIgnoreAreaId,
+    onDeleteStone,
+    onDeleteIgnoreArea,
+    setSelectedStoneId,
+    setSelectedIgnoreAreaId,
+  ]);
 
   // Track Ctrl and Alt key states for copy functionality
   useEffect(() => {
@@ -185,97 +215,227 @@ export default function DrawingCanvas({
     const pixelsToMetersX = canvasSizeX / canvasWidth;
     const pixelsToMetersY = canvasSizeY / canvasHeight;
 
+    // Helper function to get the visible (non-ignored) rectangles for a stone
+    // Returns an array of rectangles that represent the stone minus ignore areas
+    const getVisibleRectangles = (stone: StoneImage) => {
+      // stone.x, stone.y is the CENTER of the stone
+      const stoneLeft = stone.x - stone.width / 2;
+      const stoneRight = stone.x + stone.width / 2;
+      const stoneTop = stone.y - stone.height / 2;
+      const stoneBottom = stone.y + stone.height / 2;
+
+      // Start with the full stone as a single rectangle
+      let rectangles = [
+        {
+          left: stoneLeft,
+          right: stoneRight,
+          top: stoneTop,
+          bottom: stoneBottom,
+        },
+      ];
+
+      // For each ignore area, subtract it from all current rectangles
+      ignoreAreas.forEach((area) => {
+        // area.x, area.y is the TOP-LEFT of the ignore area
+        const areaLeft = area.x;
+        const areaRight = area.x + area.width;
+        const areaTop = area.y;
+        const areaBottom = area.y + area.height;
+
+        const newRectangles: typeof rectangles = [];
+
+        rectangles.forEach((rect) => {
+          // Check if this rectangle overlaps with the ignore area
+          if (
+            rect.right <= areaLeft ||
+            rect.left >= areaRight ||
+            rect.bottom <= areaTop ||
+            rect.top >= areaBottom
+          ) {
+            // No overlap, keep the rectangle as is
+            newRectangles.push(rect);
+          } else {
+            // There is overlap, split the rectangle into up to 4 parts
+            // Top part (above ignore area)
+            if (rect.top < areaTop) {
+              newRectangles.push({
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: Math.min(rect.bottom, areaTop),
+              });
+            }
+            // Bottom part (below ignore area)
+            if (rect.bottom > areaBottom) {
+              newRectangles.push({
+                left: rect.left,
+                right: rect.right,
+                top: Math.max(rect.top, areaBottom),
+                bottom: rect.bottom,
+              });
+            }
+            // Left part (left of ignore area, between top and bottom cuts)
+            const middleTop = Math.max(rect.top, areaTop);
+            const middleBottom = Math.min(rect.bottom, areaBottom);
+            if (middleTop < middleBottom) {
+              if (rect.left < areaLeft) {
+                newRectangles.push({
+                  left: rect.left,
+                  right: Math.min(rect.right, areaLeft),
+                  top: middleTop,
+                  bottom: middleBottom,
+                });
+              }
+              // Right part (right of ignore area, between top and bottom cuts)
+              if (rect.right > areaRight) {
+                newRectangles.push({
+                  left: Math.max(rect.left, areaRight),
+                  right: rect.right,
+                  top: middleTop,
+                  bottom: middleBottom,
+                });
+              }
+            }
+          }
+        });
+
+        rectangles = newRectangles;
+      });
+
+      return rectangles;
+    };
+
     // Generate a separate G-code file for each stone image
     stoneImages.forEach((stone, index) => {
-      // Convert position from pixels to meters, then to millimeters for G-code
-      const xPosMeters = stone.x * pixelsToMetersX;
-      const yPosMeters = stone.y * pixelsToMetersY;
+      // Get visible rectangles (stone minus ignore areas)
+      const visibleRects = getVisibleRectangles(stone);
+
+      if (visibleRects.length === 0) {
+        // Entire stone is covered by ignore areas, skip it
+        console.log(
+          `Stone ${index + 1} is completely covered by ignore areas, skipping.`
+        );
+        return;
+      }
+
+      // stone.x, stone.y is the CENTER of the stone in pixels
+      // Calculate the top-left corner position for comments
+      const stoneLeftPx = stone.x - stone.width / 2;
+      const stoneTopPx = stone.y - stone.height / 2;
+
+      // Convert to meters for comments
+      const stoneLeftMeters = stoneLeftPx * pixelsToMetersX;
+      const stoneTopMeters = stoneTopPx * pixelsToMetersY;
       const widthMeters = stone.width * pixelsToMetersX;
       const heightMeters = stone.height * pixelsToMetersY;
-
-      const xPosMM = xPosMeters * 1000;
-      const yPosMM = yPosMeters * 1000;
-      const widthMM = widthMeters * 1000;
-      const heightMM = heightMeters * 1000;
 
       // Generate G-code for this specific stone
       let gcode = "; G-code generated for stone cutting\n";
       gcode += "; Stone " + (index + 1) + " (ID: " + stone.id + ")\n";
       gcode +=
-        "; Position: X=" +
-        xPosMeters.toFixed(3) +
+        "; Original Canvas Position (top-left): X=" +
+        stoneLeftMeters.toFixed(3) +
         "m, Y=" +
-        yPosMeters.toFixed(3) +
+        stoneTopMeters.toFixed(3) +
         "m\n";
       gcode +=
-        "; Size: W=" +
+        "; Original Size: W=" +
         widthMeters.toFixed(3) +
         "m, H=" +
         heightMeters.toFixed(3) +
         "m\n";
       gcode += "; Rotation: " + Math.round(stone.rotation) + " degrees\n";
+      if (ignoreAreas.length > 0) {
+        gcode +=
+          "; Note: " +
+          visibleRects.length +
+          " cutting region(s) after applying " +
+          ignoreAreas.length +
+          " ignore area(s)\n";
+      }
       gcode += ";\n";
       gcode += "G21 ; Set units to millimeters\n";
       gcode += "G90 ; Set to absolute positioning\n";
       gcode += "G28 ; Home all axes\n";
       gcode += ";\n";
 
-      // Move to position
-      gcode +=
-        "G0 X" +
-        xPosMM.toFixed(2) +
-        " Y" +
-        yPosMM.toFixed(2) +
-        " ; Move to stone position\n";
+      // Apply rotation (if supported by machine) - rotate around center of original stone
+      const stoneCenterXMeters = stone.x * pixelsToMetersX;
+      const stoneCenterYMeters = stone.y * pixelsToMetersY;
+      // For G-code, flip Y axis
+      const gcodeCenterXMM = stoneCenterXMeters * 1000;
+      const gcodeCenterYMM = (canvasSizeY - stoneCenterYMeters) * 1000;
 
-      // Apply rotation (if supported by machine)
       if (Math.abs(stone.rotation) > 0.1) {
         gcode +=
           "G68 X" +
-          xPosMM.toFixed(2) +
+          gcodeCenterXMM.toFixed(2) +
           " Y" +
-          yPosMM.toFixed(2) +
+          gcodeCenterYMM.toFixed(2) +
           " R" +
-          stone.rotation.toFixed(2) +
-          " ; Rotate coordinate system\n";
+          (-stone.rotation).toFixed(2) + // Negate rotation because Y is flipped
+          " ; Rotate coordinate system around stone center\n";
       }
 
-      // Cut rectangle based on stone size (starting from center, cutting outward)
-      const halfWidth = widthMM / 2;
-      const halfHeight = heightMM / 2;
+      // Cut each visible rectangle
+      visibleRects.forEach((rect, rectIndex) => {
+        // Convert rectangle coordinates to meters then to mm
+        // rect coordinates are in canvas pixels (top-left origin)
+        const rectLeftMeters = rect.left * pixelsToMetersX;
+        const rectRightMeters = rect.right * pixelsToMetersX;
+        const rectTopMeters = rect.top * pixelsToMetersY;
+        const rectBottomMeters = rect.bottom * pixelsToMetersY;
 
-      gcode +=
-        "G0 X" +
-        (xPosMM - halfWidth).toFixed(2) +
-        " Y" +
-        (yPosMM - halfHeight).toFixed(2) +
-        " ; Move to start position (bottom-left)\n";
-      gcode += "G1 Z-5 F100 ; Lower tool (adjust Z and feed rate as needed)\n";
-      gcode +=
-        "G1 X" +
-        (xPosMM + halfWidth).toFixed(2) +
-        " Y" +
-        (yPosMM - halfHeight).toFixed(2) +
-        " F500 ; Cut to right\n";
-      gcode +=
-        "G1 X" +
-        (xPosMM + halfWidth).toFixed(2) +
-        " Y" +
-        (yPosMM + halfHeight).toFixed(2) +
-        " F500 ; Cut to top\n";
-      gcode +=
-        "G1 X" +
-        (xPosMM - halfWidth).toFixed(2) +
-        " Y" +
-        (yPosMM + halfHeight).toFixed(2) +
-        " F500 ; Cut to left\n";
-      gcode +=
-        "G1 X" +
-        (xPosMM - halfWidth).toFixed(2) +
-        " Y" +
-        (yPosMM - halfHeight).toFixed(2) +
-        " F500 ; Cut to bottom (close rectangle)\n";
-      gcode += "G0 Z5 ; Raise tool\n";
+        // For G-code, flip Y axis (canvas Y=0 is top, G-code Y=0 is bottom)
+        const gcodeLeftMM = rectLeftMeters * 1000;
+        const gcodeRightMM = rectRightMeters * 1000;
+        const gcodeBottomMM = (canvasSizeY - rectBottomMeters) * 1000; // canvas bottom -> gcode bottom
+        const gcodeTopMM = (canvasSizeY - rectTopMeters) * 1000; // canvas top -> gcode top
+
+        gcode += ";\n";
+        gcode +=
+          "; Cutting region " +
+          (rectIndex + 1) +
+          " of " +
+          visibleRects.length +
+          "\n";
+
+        // Move to start position (bottom-left of this rectangle in G-code coordinates)
+        gcode +=
+          "G0 X" +
+          gcodeLeftMM.toFixed(2) +
+          " Y" +
+          gcodeBottomMM.toFixed(2) +
+          " ; Move to start position (bottom-left)\n";
+        gcode += "G1 Z-5 F100 ; Lower tool\n";
+
+        // Cut the rectangle (counter-clockwise from bottom-left)
+        gcode +=
+          "G1 X" +
+          gcodeRightMM.toFixed(2) +
+          " Y" +
+          gcodeBottomMM.toFixed(2) +
+          " F500 ; Cut to right (bottom-right)\n";
+        gcode +=
+          "G1 X" +
+          gcodeRightMM.toFixed(2) +
+          " Y" +
+          gcodeTopMM.toFixed(2) +
+          " F500 ; Cut up (top-right)\n";
+        gcode +=
+          "G1 X" +
+          gcodeLeftMM.toFixed(2) +
+          " Y" +
+          gcodeTopMM.toFixed(2) +
+          " F500 ; Cut to left (top-left)\n";
+        gcode +=
+          "G1 X" +
+          gcodeLeftMM.toFixed(2) +
+          " Y" +
+          gcodeBottomMM.toFixed(2) +
+          " F500 ; Cut down (close rectangle)\n";
+        gcode += "G0 Z5 ; Raise tool\n";
+      });
 
       // Reset rotation if applied
       if (Math.abs(stone.rotation) > 0.1) {
@@ -478,6 +638,7 @@ export default function DrawingCanvas({
             // Store stone images data in localStorage
             const stoneData = {
               stoneImages: stoneImages,
+              ignoreAreas: ignoreAreas,
               canvasSizeX: canvasSizeX,
               canvasSizeY: canvasSizeY,
               canvasWidth: canvasWidth,
@@ -541,7 +702,7 @@ export default function DrawingCanvas({
 
       {/* Horizontal ruler (top) */}
       <div
-        className="absolute bg-gray-100 border-b border-gray-400"
+        className="absolute bg-gray-100 border-b z-10 border-gray-400"
         style={{
           left: `${rulerWidth}px`,
           top: "0",
@@ -555,7 +716,7 @@ export default function DrawingCanvas({
 
       {/* Vertical ruler (left) */}
       <div
-        className="absolute bg-gray-100 border-r border-gray-400"
+        className="absolute bg-gray-100 border-r z-10 border-gray-400"
         style={{
           left: "0",
           top: `${rulerHeight}px`,
@@ -594,10 +755,11 @@ export default function DrawingCanvas({
           width={canvasWidth}
           height={canvasHeight}
           onClick={(e: any) => {
-            // Deselect stone if clicking on empty space
+            // Deselect stone and ignore area if clicking on empty space
             const clickedOnEmpty = e.target === e.target.getStage();
             if (clickedOnEmpty) {
               setSelectedStoneId(null);
+              setSelectedIgnoreAreaId(null);
             }
           }}
         >
@@ -906,6 +1068,125 @@ export default function DrawingCanvas({
                         shadowBlur={3}
                         align="center"
                         rotation={90}
+                      />
+                    </>
+                  )}
+                </Group>
+              );
+            })}
+
+            {/* Render ignore areas */}
+            {ignoreAreas.map((area) => {
+              const isSelected = selectedIgnoreAreaId === area.id;
+
+              // Calculate position and size info for display
+              const pixelsToMetersX = canvasSizeX / canvasWidth;
+              const pixelsToMetersY = canvasSizeY / canvasHeight;
+              const widthInMeters = area.width * pixelsToMetersX;
+              const heightInMeters = area.height * pixelsToMetersY;
+
+              return (
+                <Group
+                  key={area.id}
+                  x={area.x}
+                  y={area.y}
+                  draggable
+                  dragBoundFunc={(pos: { x: number; y: number }) => {
+                    // Constrain dragging to keep area within canvas
+                    const constrainedX = Math.max(
+                      0,
+                      Math.min(pos.x, canvasWidth - area.width)
+                    );
+                    const constrainedY = Math.max(
+                      0,
+                      Math.min(pos.y, canvasHeight - area.height)
+                    );
+                    return { x: constrainedX, y: constrainedY };
+                  }}
+                  onClick={(e: any) => {
+                    e.cancelBubble = true;
+                    setSelectedIgnoreAreaId(area.id);
+                    setSelectedStoneId(null); // Deselect stone when selecting ignore area
+                  }}
+                  onDragEnd={(e: { target: any }) => {
+                    const node = e.target;
+                    if (!node) return;
+
+                    const newX = node.x();
+                    const newY = node.y();
+
+                    // Update stored position
+                    setIgnoreAreas(
+                      ignoreAreas.map((a) =>
+                        a.id === area.id ? { ...a, x: newX, y: newY } : a
+                      )
+                    );
+                  }}
+                >
+                  {/* White rectangle with orange border */}
+                  <Rect
+                    x={0}
+                    y={0}
+                    width={area.width}
+                    height={area.height}
+                    fill="white"
+                    stroke={isSelected ? "#EA580C" : "#FB923C"}
+                    strokeWidth={isSelected ? 3 : 2}
+                    listening={true}
+                  />
+
+                  {/* "IGNORE" text in center */}
+                  <Text
+                    x={area.width / 2}
+                    y={area.height / 2}
+                    text="IGNORE"
+                    fontSize={Math.min(area.width / 8, area.height / 4, 16)}
+                    fill="#EA580C"
+                    fontStyle="bold"
+                    listening={false}
+                    align="center"
+                    verticalAlign="middle"
+                    offsetX={0}
+                    offsetY={0}
+                  />
+
+                  {/* Show position and size info when selected */}
+                  {isSelected && (
+                    <>
+                      <Text
+                        x={area.width + 10}
+                        y={-15}
+                        text={`Left: ${(area.x * pixelsToMetersX).toFixed(3)}m`}
+                        fontSize={11}
+                        fill="#EA580C"
+                        fontStyle="bold"
+                        listening={false}
+                        shadowColor="white"
+                        shadowBlur={3}
+                      />
+                      <Text
+                        x={area.width + 10}
+                        y={0}
+                        text={`Top: ${(area.y * pixelsToMetersY).toFixed(3)}m`}
+                        fontSize={11}
+                        fill="#EA580C"
+                        fontStyle="bold"
+                        listening={false}
+                        shadowColor="white"
+                        shadowBlur={3}
+                      />
+                      <Text
+                        x={area.width + 10}
+                        y={15}
+                        text={`Size: ${widthInMeters.toFixed(
+                          3
+                        )}m × ${heightInMeters.toFixed(3)}m`}
+                        fontSize={11}
+                        fill="#EA580C"
+                        fontStyle="bold"
+                        listening={false}
+                        shadowColor="white"
+                        shadowBlur={3}
                       />
                     </>
                   )}

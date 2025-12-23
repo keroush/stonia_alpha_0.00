@@ -16,6 +16,14 @@ interface StoneImage {
   cropSelection: { startX: number; startY: number; endX: number; endY: number };
 }
 
+interface IgnoreArea {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedStoneImage, setSelectedStoneImage] = useState<string | null>(
@@ -25,6 +33,7 @@ export default function Home() {
   const [slabDialogState, setSlabDialogState] = useState<"select" | "crop">(
     "select"
   );
+  const [slabDialogTab, setSlabDialogTab] = useState<"new" | "used">("new");
   const [selectedSlabImage, setSelectedSlabImage] = useState<string | null>(
     null
   );
@@ -89,6 +98,15 @@ export default function Home() {
     y: number;
   } | null>(null);
 
+  // Ignore areas state
+  const [ignoreAreas, setIgnoreAreas] = useState<IgnoreArea[]>([]);
+  const [selectedIgnoreAreaId, setSelectedIgnoreAreaId] = useState<
+    string | null
+  >(null);
+  const [showIgnoreAreaDialog, setShowIgnoreAreaDialog] = useState(false);
+  const [ignoreAreaWidth, setIgnoreAreaWidth] = useState<number>(0.5);
+  const [ignoreAreaHeight, setIgnoreAreaHeight] = useState<number>(0.5);
+
   // Canvas state
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
   const stageRef = useRef<any>(null);
@@ -98,6 +116,58 @@ export default function Home() {
     if (selectedStoneId === id) {
       setSelectedStoneId(null);
     }
+  };
+
+  const handleDeleteIgnoreArea = (id: string) => {
+    setIgnoreAreas(ignoreAreas.filter((area) => area.id !== id));
+    if (selectedIgnoreAreaId === id) {
+      setSelectedIgnoreAreaId(null);
+    }
+  };
+
+  const handleAddIgnoreArea = () => {
+    // Calculate canvas dimensions (same logic as elsewhere)
+    const aspectRatio = canvasSizeX / canvasSizeY;
+    const maxCanvasSize = 1200;
+    let canvasWidth = 800;
+    let canvasHeight = 600;
+
+    if (aspectRatio >= 1) {
+      canvasWidth = Math.min(maxCanvasSize, 800);
+      canvasHeight = canvasWidth / aspectRatio;
+    } else {
+      canvasHeight = Math.min(maxCanvasSize, 600);
+      canvasWidth = canvasHeight * aspectRatio;
+    }
+
+    if (canvasWidth < 400) {
+      canvasWidth = 400;
+      canvasHeight = canvasWidth / aspectRatio;
+    }
+    if (canvasHeight < 300) {
+      canvasHeight = 300;
+      canvasWidth = canvasHeight * aspectRatio;
+    }
+
+    // Calculate pixels-to-meters conversion
+    const pixelsToMetersX = canvasSizeX / canvasWidth;
+    const pixelsToMetersY = canvasSizeY / canvasHeight;
+
+    // Convert meters to pixels
+    const widthInPixels = ignoreAreaWidth / pixelsToMetersX;
+    const heightInPixels = ignoreAreaHeight / pixelsToMetersY;
+
+    // Create new ignore area at center of canvas
+    const newIgnoreArea: IgnoreArea = {
+      id: `ignore-${Date.now()}`,
+      x: canvasWidth / 2 - widthInPixels / 2,
+      y: canvasHeight / 2 - heightInPixels / 2,
+      width: widthInPixels,
+      height: heightInPixels,
+    };
+
+    setIgnoreAreas([...ignoreAreas, newIgnoreArea]);
+    setShowIgnoreAreaDialog(false);
   };
 
   // Stone slab images with example size properties (in meters)
@@ -122,7 +192,7 @@ export default function Home() {
       url: "/images/stone.3.png",
       exampleWidthMeters: 3.0,
       exampleHeightMeters: 3.0,
-    }
+    },
   ];
 
   const handleSlabImageClick = (url: string) => {
@@ -379,6 +449,49 @@ export default function Home() {
     setIsSelecting(false);
   };
 
+  // Helper function to get existing crop selections for a specific slab (in display coordinates)
+  const getExistingSelectionsForSlab = (slabUrl: string) => {
+    return stoneImages
+      .filter((stone) => stone.originalImageUrl === slabUrl)
+      .map((stone) => stone.cropSelection);
+  };
+
+  // Helper function to check if new selection overlaps with existing selections
+  const checkSelectionOverlap = (
+    newSelection: {
+      startX: number;
+      startY: number;
+      endX: number;
+      endY: number;
+    },
+    existingSelections: {
+      startX: number;
+      startY: number;
+      endX: number;
+      endY: number;
+    }[]
+  ) => {
+    const newLeft = Math.min(newSelection.startX, newSelection.endX);
+    const newRight = Math.max(newSelection.startX, newSelection.endX);
+    const newTop = Math.min(newSelection.startY, newSelection.endY);
+    const newBottom = Math.max(newSelection.startY, newSelection.endY);
+
+    return existingSelections.some((existing) => {
+      const existingLeft = Math.min(existing.startX, existing.endX);
+      const existingRight = Math.max(existing.startX, existing.endX);
+      const existingTop = Math.min(existing.startY, existing.endY);
+      const existingBottom = Math.max(existing.startY, existing.endY);
+
+      // Check if rectangles overlap
+      return !(
+        newRight <= existingLeft ||
+        newLeft >= existingRight ||
+        newBottom <= existingTop ||
+        newTop >= existingBottom
+      );
+    });
+  };
+
   const handleAddCropToCanvas = () => {
     if (!selectedSlabImage || !cropSelection || !slabImageRef.current) return;
 
@@ -603,9 +716,15 @@ export default function Home() {
               <div className="border-t border-gray-200 pt-4">
                 <button
                   onClick={() => setShowSlabDialog(true)}
-                  className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+                  className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium mb-2"
                 >
                   Select Slab
+                </button>
+                <button
+                  onClick={() => setShowIgnoreAreaDialog(true)}
+                  className="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                >
+                  Add Ignore Area
                 </button>
               </div>
 
@@ -708,6 +827,104 @@ export default function Home() {
                       })}
                     </div>
                   </div>
+
+                  {/* Ignore Areas List */}
+                  {ignoreAreas.length > 0 && (
+                    <div className="border-t border-gray-200 pt-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-gray-700">
+                          Ignore Areas ({ignoreAreas.length})
+                        </h3>
+                        <button
+                          onClick={() => {
+                            setIgnoreAreas([]);
+                            setSelectedIgnoreAreaId(null);
+                          }}
+                          className="px-2 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                        {ignoreAreas.map((area) => {
+                          // Calculate canvas dimensions (same logic as above)
+                          const maxDisplaySize = 1200;
+                          const aspectRatio = canvasSizeX / canvasSizeY;
+                          let canvasWidth = 800;
+                          let canvasHeight = 600;
+
+                          if (aspectRatio >= 1) {
+                            canvasWidth = Math.min(maxDisplaySize, 800);
+                            canvasHeight = canvasWidth / aspectRatio;
+                          } else {
+                            canvasHeight = Math.min(maxDisplaySize, 600);
+                            canvasWidth = canvasHeight * aspectRatio;
+                          }
+
+                          if (canvasWidth < 400) {
+                            canvasWidth = 400;
+                            canvasHeight = canvasWidth / aspectRatio;
+                          }
+                          if (canvasHeight < 300) {
+                            canvasHeight = 300;
+                            canvasWidth = canvasHeight * aspectRatio;
+                          }
+
+                          const pixelsToMetersX = canvasSizeX / canvasWidth;
+                          const pixelsToMetersY = canvasSizeY / canvasHeight;
+                          const distanceLeft = area.x * pixelsToMetersX;
+                          const distanceTop = area.y * pixelsToMetersY;
+                          const widthInMeters = area.width * pixelsToMetersX;
+                          const heightInMeters = area.height * pixelsToMetersY;
+                          const isSelected = selectedIgnoreAreaId === area.id;
+
+                          return (
+                            <div
+                              key={area.id}
+                              className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${
+                                isSelected
+                                  ? "border-orange-500 bg-orange-50"
+                                  : "border-gray-200 bg-gray-50 hover:border-gray-300"
+                              }`}
+                              onClick={() => {
+                                setSelectedIgnoreAreaId(area.id);
+                              }}
+                            >
+                              <div className="flex items-start gap-2">
+                                <div className="w-16 h-16 bg-white border-2 border-orange-400 rounded flex items-center justify-center">
+                                  <span className="text-xs text-orange-600 font-medium">
+                                    IGNORE
+                                  </span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs font-medium text-gray-700 mb-1">
+                                    Ignore Area
+                                  </div>
+                                  <div className="text-xs text-gray-600 space-y-0.5">
+                                    <div>Left: {distanceLeft.toFixed(3)}m</div>
+                                    <div>Top: {distanceTop.toFixed(3)}m</div>
+                                    <div>
+                                      Size: {widthInMeters.toFixed(3)}m ×{" "}
+                                      {heightInMeters.toFixed(3)}m
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteIgnoreArea(area.id);
+                                    }}
+                                    className="mt-2 text-xs text-red-600 hover:text-red-700 hover:underline"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -728,6 +945,11 @@ export default function Home() {
             selectedStoneId={selectedStoneId}
             setSelectedStoneId={setSelectedStoneId}
             onDeleteStone={handleDeleteStone}
+            ignoreAreas={ignoreAreas}
+            setIgnoreAreas={setIgnoreAreas}
+            selectedIgnoreAreaId={selectedIgnoreAreaId}
+            setSelectedIgnoreAreaId={setSelectedIgnoreAreaId}
+            onDeleteIgnoreArea={handleDeleteIgnoreArea}
           />
         </div>
       </main>
@@ -746,6 +968,7 @@ export default function Home() {
                     onClick={() => {
                       setShowSlabDialog(false);
                       setSlabDialogState("select");
+                      setSlabDialogTab("new");
                       setSelectedSlabImage(null);
                     }}
                     className="text-gray-500 hover:text-gray-700 p-1"
@@ -765,40 +988,145 @@ export default function Home() {
                     </svg>
                   </button>
                 </div>
-                <p className="text-gray-600 mb-4">
-                  Choose a stone slab to select a portion from:
-                </p>
-                <div className="grid grid-cols-3 gap-4">
-                  {slabImages.map((slab) => (
-                    <button
-                      key={slab.id}
-                      onClick={() => handleSlabImageClick(slab.url)}
-                      className="relative rounded-lg border-2 border-gray-300 hover:border-indigo-500 overflow-hidden transition-all group"
-                      style={{
-                        aspectRatio: `${slab.exampleWidthMeters} / ${slab.exampleHeightMeters}`,
-                      }}
-                    >
-                      <img
-                        src={slab.url}
-                        alt={slab.name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          // If image doesn't exist, show placeholder
-                          const target = e.target as HTMLImageElement;
-                          target.src =
-                            'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect width="200" height="200" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="14"%3E' +
-                            slab.name +
-                            "%3C/text%3E%3C/svg%3E";
-                        }}
-                      />
-                      <div className="absolute inset-0 bg-indigo-500 bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center">
-                        <span className="text-white font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
-                          {slab.name}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
+
+                {/* Tab Navigation */}
+                <div className="flex border-b border-gray-200 mb-4">
+                  <button
+                    onClick={() => setSlabDialogTab("new")}
+                    className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
+                      slabDialogTab === "new"
+                        ? "border-indigo-500 text-indigo-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    New Slabs
+                  </button>
+                  <button
+                    onClick={() => setSlabDialogTab("used")}
+                    className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
+                      slabDialogTab === "used"
+                        ? "border-indigo-500 text-indigo-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    Used Slabs (
+                    {(() => {
+                      const usedSlabUrls = Array.from(
+                        new Set(stoneImages.map((s) => s.originalImageUrl))
+                      );
+                      return usedSlabUrls.length;
+                    })()}
+                    )
+                  </button>
                 </div>
+
+                {slabDialogTab === "new" ? (
+                  <>
+                    <p className="text-gray-600 mb-4">
+                      Choose a stone slab to select a portion from:
+                    </p>
+                    <div className="grid grid-cols-3 gap-4">
+                      {slabImages.map((slab) => (
+                        <button
+                          key={slab.id}
+                          onClick={() => handleSlabImageClick(slab.url)}
+                          className="relative rounded-lg border-2 border-gray-300 hover:border-indigo-500 overflow-hidden transition-all group"
+                          style={{
+                            aspectRatio: `${slab.exampleWidthMeters} / ${slab.exampleHeightMeters}`,
+                          }}
+                        >
+                          <img
+                            src={slab.url}
+                            alt={slab.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              // If image doesn't exist, show placeholder
+                              const target = e.target as HTMLImageElement;
+                              target.src =
+                                'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect width="200" height="200" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="14"%3E' +
+                                slab.name +
+                                "%3C/text%3E%3C/svg%3E";
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-indigo-500 bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center">
+                            <span className="text-white font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                              {slab.name}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-gray-600 mb-4">
+                      Select from previously used slabs (white areas show
+                      already selected regions):
+                    </p>
+                    {(() => {
+                      // Get unique slab URLs that have been used
+                      const usedSlabUrls = Array.from(
+                        new Set(stoneImages.map((s) => s.originalImageUrl))
+                      );
+                      const usedSlabs = slabImages.filter((slab) =>
+                        usedSlabUrls.includes(slab.url)
+                      );
+
+                      if (usedSlabs.length === 0) {
+                        return (
+                          <div className="text-center py-8 text-gray-500">
+                            No slabs have been used yet. Select from "New Slabs"
+                            tab first.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="grid grid-cols-3 gap-4">
+                          {usedSlabs.map((slab) => {
+                            // Count how many selections from this slab
+                            const selectionsFromSlab = stoneImages.filter(
+                              (s) => s.originalImageUrl === slab.url
+                            ).length;
+
+                            return (
+                              <button
+                                key={slab.id}
+                                onClick={() => handleSlabImageClick(slab.url)}
+                                className="relative rounded-lg border-2 border-gray-300 hover:border-indigo-500 overflow-hidden transition-all group"
+                                style={{
+                                  aspectRatio: `${slab.exampleWidthMeters} / ${slab.exampleHeightMeters}`,
+                                }}
+                              >
+                                <img
+                                  src={slab.url}
+                                  alt={slab.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.src =
+                                      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect width="200" height="200" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="14"%3E' +
+                                      slab.name +
+                                      "%3C/text%3E%3C/svg%3E";
+                                  }}
+                                />
+                                <div className="absolute inset-0 bg-indigo-500 bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center">
+                                  <span className="text-white font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {slab.name}
+                                  </span>
+                                </div>
+                                {/* Badge showing number of selections */}
+                                <div className="absolute top-2 right-2 bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                  {selectionsFromSlab} used
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
               </>
             ) : (
               <div className="flex gap-4">
@@ -1221,6 +1549,69 @@ export default function Home() {
                           'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect width="400" height="300" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="16"%3EImage not found%3C/text%3E%3C/svg%3E';
                       }}
                     />
+                    {/* Render existing selections as white blocked areas */}
+                    {selectedSlabImage &&
+                      slabImageRef.current &&
+                      slabContainerRef.current &&
+                      slabDialogTab === "used" &&
+                      (() => {
+                        const existingSelections =
+                          getExistingSelectionsForSlab(selectedSlabImage);
+                        if (existingSelections.length === 0) return null;
+
+                        const containerRect =
+                          slabContainerRef.current!.getBoundingClientRect();
+                        const imgRect =
+                          slabImageRef.current!.getBoundingClientRect();
+                        const imgLeft = imgRect.left - containerRect.left;
+                        const imgTop = imgRect.top - containerRect.top;
+                        const imgDisplayWidth = imgRect.width;
+                        const imgDisplayHeight = imgRect.height;
+
+                        // Get natural image dimensions for scaling
+                        const imgNaturalWidth =
+                          slabImageRef.current!.naturalWidth;
+                        const imgNaturalHeight =
+                          slabImageRef.current!.naturalHeight;
+                        const scaleX = imgDisplayWidth / imgNaturalWidth;
+                        const scaleY = imgDisplayHeight / imgNaturalHeight;
+
+                        return existingSelections.map((selection, index) => {
+                          // Convert from natural coordinates to display coordinates
+                          const displayLeft =
+                            imgLeft +
+                            Math.min(selection.startX, selection.endX) * scaleX;
+                          const displayTop =
+                            imgTop +
+                            Math.min(selection.startY, selection.endY) * scaleY;
+                          const displayWidth =
+                            Math.abs(selection.endX - selection.startX) *
+                            scaleX;
+                          const displayHeight =
+                            Math.abs(selection.endY - selection.startY) *
+                            scaleY;
+
+                          return (
+                            <div
+                              key={`existing-${index}`}
+                              className="absolute bg-white border-2 border-gray-400 pointer-events-none"
+                              style={{
+                                left: `${displayLeft}px`,
+                                top: `${displayTop}px`,
+                                width: `${displayWidth}px`,
+                                height: `${displayHeight}px`,
+                                opacity: 0.85,
+                              }}
+                            >
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-gray-500 text-xs font-medium">
+                                  USED
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
                     {cropSelection &&
                       shapePosition &&
                       slabImageRef.current &&
@@ -1492,13 +1883,83 @@ export default function Home() {
                     >
                       Back
                     </button>
-                    <button
-                      onClick={handleAddCropToCanvas}
-                      disabled={!cropSelection}
-                      className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-                    >
-                      Confirm
-                    </button>
+                    {(() => {
+                      // Check if current selection overlaps with existing selections (only for "used" tab)
+                      let hasOverlap = false;
+                      let overlapMessage = "";
+
+                      if (
+                        slabDialogTab === "used" &&
+                        cropSelection &&
+                        selectedSlabImage &&
+                        slabImageRef.current
+                      ) {
+                        const existingSelections =
+                          getExistingSelectionsForSlab(selectedSlabImage);
+
+                        if (existingSelections.length > 0) {
+                          // Convert current selection to natural coordinates for comparison
+                          const img = slabImageRef.current;
+                          const imgRect = img.getBoundingClientRect();
+                          const scaleX = img.naturalWidth / imgRect.width;
+                          const scaleY = img.naturalHeight / imgRect.height;
+
+                          const naturalSelection = {
+                            startX:
+                              Math.min(
+                                cropSelection.startX,
+                                cropSelection.endX
+                              ) * scaleX,
+                            startY:
+                              Math.min(
+                                cropSelection.startY,
+                                cropSelection.endY
+                              ) * scaleY,
+                            endX:
+                              Math.max(
+                                cropSelection.startX,
+                                cropSelection.endX
+                              ) * scaleX,
+                            endY:
+                              Math.max(
+                                cropSelection.startY,
+                                cropSelection.endY
+                              ) * scaleY,
+                          };
+
+                          hasOverlap = checkSelectionOverlap(
+                            naturalSelection,
+                            existingSelections
+                          );
+                          if (hasOverlap) {
+                            overlapMessage =
+                              "Selection overlaps with existing area";
+                          }
+                        }
+                      }
+
+                      return (
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            onClick={handleAddCropToCanvas}
+                            disabled={!cropSelection || hasOverlap}
+                            className={`px-6 py-2 rounded-lg transition-colors font-medium ${
+                              hasOverlap
+                                ? "bg-red-400 text-white cursor-not-allowed"
+                                : "bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            }`}
+                            title={hasOverlap ? overlapMessage : ""}
+                          >
+                            {hasOverlap ? "Overlap Detected" : "Confirm"}
+                          </button>
+                          {hasOverlap && (
+                            <span className="text-xs text-red-500">
+                              {overlapMessage}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -1925,6 +2386,89 @@ export default function Home() {
                   </>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ignore Area Dialog */}
+      {showIgnoreAreaDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-800">
+                Add Ignore Area
+              </h2>
+              <button
+                onClick={() => setShowIgnoreAreaDialog(false)}
+                className="text-gray-500 hover:text-gray-700 p-1"
+              >
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            <p className="text-gray-600 mb-4">
+              Create a white rectangle that will be ignored during SVG and
+              G-code generation.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Width (meters)
+                </label>
+                <input
+                  type="number"
+                  min="0.1"
+                  max="10"
+                  step="0.1"
+                  value={ignoreAreaWidth}
+                  onChange={(e) =>
+                    setIgnoreAreaWidth(parseFloat(e.target.value) || 0.1)
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Height (meters)
+                </label>
+                <input
+                  type="number"
+                  min="0.1"
+                  max="10"
+                  step="0.1"
+                  value={ignoreAreaHeight}
+                  onChange={(e) =>
+                    setIgnoreAreaHeight(parseFloat(e.target.value) || 0.1)
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                onClick={() => setShowIgnoreAreaDialog(false)}
+                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddIgnoreArea}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
+              >
+                Add Ignore Area
+              </button>
             </div>
           </div>
         </div>
